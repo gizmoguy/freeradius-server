@@ -566,7 +566,11 @@ static rlm_rcode_t CC_HINT(nonnull) mod_passwd_map(void *instance, REQUEST *requ
 		}
 	}
 
-	return RLM_MODULE_OK;
+	if(request->reply->vps) {
+		return RLM_MODULE_OK;
+	}
+
+	return RLM_MODULE_NOTFOUND;
 
 #undef inst
 }
