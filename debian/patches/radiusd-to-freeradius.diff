@@ -1,6 +1,6 @@
 --- a/Make.inc.in
 +++ b/Make.inc.in
-@@ -94,7 +94,7 @@
+@@ -95,7 +95,7 @@ LDFLAGS		= $(OPENSSL_LDFLAGS) $(TALLOC_L
  
  LOGDIR		= ${logdir}
  RADDBDIR	= ${raddbdir}
@@ -11,7 +11,7 @@
  LIBRADIUS	= $(top_builddir)/src/lib/$(LIBPREFIX)freeradius-radius.la $(TALLOC_LIBS)
 --- a/raddb/radiusd.conf.in
 +++ b/raddb/radiusd.conf.in
-@@ -61,7 +61,7 @@
+@@ -61,7 +61,7 @@ radacctdir = @radacctdir@
  
  #
  #  name of the running server.  See also the "-n" command-line option.
@@ -20,7 +20,7 @@
  
  #  Location of config and logfiles.
  confdir = ${raddbdir}
-@@ -415,8 +415,8 @@
+@@ -436,8 +436,8 @@ security {
  	#  member.  This can allow for some finer-grained access
  	#  controls.
  	#
