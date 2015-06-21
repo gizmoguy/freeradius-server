@@ -36,7 +36,7 @@ RCSIDH(other_h, "$Id$")
 #include <curl/curl.h>
 
 #ifdef HAVE_JSON
-#include <json/json.h>
+#include <json-c/json.h>
 #endif
 
 #define REST_URI_MAX_LEN		2048
