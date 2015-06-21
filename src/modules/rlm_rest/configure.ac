@@ -97,8 +97,8 @@ if test x$with_[]modname != xno; then
 
 	have_json="yes"
 	smart_try_dir="$jsonc_include_dir"
-	FR_SMART_CHECK_INCLUDE([json/json.h])
-	if test "x$ac_cv_header_json_json_h" != "xyes"; then
+	FR_SMART_CHECK_INCLUDE([json-c/json.h])
+	if test "x$ac_cv_header_jsonmc_json_h" != "xyes"; then
 		have_json="no"
 		AC_MSG_WARN([json-c headers not found. Use --with-jsonc-include-dir=<path>.])
 	fi
