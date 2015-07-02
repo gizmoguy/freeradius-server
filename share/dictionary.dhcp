@@ -229,11 +229,11 @@ ATTRIBUTE	DHCP-Client-FQDN			81	octets
 # Relay Agent Information
 ATTRIBUTE	DHCP-Relay-Agent-Information		82	tlv
 
-ATTRIBUTE	DHCP-Agent-Circuit-Id			82.1	octets
-ATTRIBUTE	DHCP-Agent-Remote-Id			82.2	octets
+ATTRIBUTE	DHCP-Agent-Circuit-Id			82.1	string
+ATTRIBUTE	DHCP-Agent-Remote-Id			82.2	string
 
-ATTRIBUTE	DHCP-Relay-Circuit-Id			82.1	octets
-ATTRIBUTE	DHCP-Relay-Remote-Id			82.2	octets
+ATTRIBUTE	DHCP-Relay-Circuit-Id			82.1	string
+ATTRIBUTE	DHCP-Relay-Remote-Id			82.2	string
 
 # 3 is reserved and shouldn't be used for anything
 ATTRIBUTE	DHCP-Docsis-Device-Class		82.4	integer
