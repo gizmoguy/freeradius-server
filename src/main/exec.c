@@ -177,7 +177,7 @@ pid_t radius_start_program(char const *cmd, REQUEST *request, bool exec_wait,
 			}
 
 			n = strlen(buffer);
-			vp_prints_value(buffer + n, sizeof(buffer) - n, vp, shell_escape ? '"' : 0);
+			fr_pair_value_snprint(buffer + n, sizeof(buffer) - n, vp, shell_escape ? '"' : 0);
 
 			DEBUG3("export %s", buffer);
 			envp[envlen++] = talloc_strdup(input_ctx, buffer);
@@ -191,8 +191,12 @@ pid_t radius_start_program(char const *cmd, REQUEST *request, bool exec_wait,
 		fr_cursor_init(&cursor, radius_list(request, PAIR_LIST_CONTROL));
 		while ((vp = fr_cursor_next_by_num(&cursor, PW_EXEC_EXPORT, 0, TAG_ANY))) {
 			DEBUG3("export %s", vp->vp_strvalue);
-			memcpy(&envp[envlen++], &(vp->vp_strvalue), sizeof(*envp));
+			memcpy(&envp[envlen++], &vp->vp_strvalue, sizeof(*envp));
 
+			/*
+			 *	Don't add too many attributes.
+			 */
+			if (envlen == (MAX_ENVP - 1)) break;
 		}
 
 		/*
@@ -589,9 +593,9 @@ int radius_exec_program(TALLOC_CTX *ctx, char *out, size_t outlen, VALUE_PAIR **
 	if (output_pairs) {
 		/*
 		 *	HACK: Replace '\n' with ',' so that
-		 *	userparse() can parse the buffer in
+		 *	fr_pair_list_afrom_str() can parse the buffer in
 		 *	one go (the proper way would be to
-		 *	fix userparse(), but oh well).
+		 *	fix fr_pair_list_afrom_str(), but oh well).
 		 */
 		for (p = answer; *p; p++) {
 			if (*p == '\n') {
@@ -611,7 +615,7 @@ int radius_exec_program(TALLOC_CTX *ctx, char *out, size_t outlen, VALUE_PAIR **
 			answer[--len] = '\0';
 		}
 
-		if (userparse(ctx, answer, output_pairs) == T_INVALID) {
+		if (fr_pair_list_afrom_str(ctx, answer, output_pairs) == T_INVALID) {
 			RERROR("Failed parsing output from: %s: %s", cmd, fr_strerror());
 			strlcpy(out, answer, len);
 			ret = -1;

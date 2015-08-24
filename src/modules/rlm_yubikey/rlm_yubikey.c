@@ -39,21 +39,21 @@ RCSID("$Id$")
 
 #ifdef HAVE_YKCLIENT
 static const CONF_PARSER validation_config[] = {
-	{ "client_id", FR_CONF_OFFSET(PW_TYPE_INTEGER, rlm_yubikey_t, client_id), 0 },
-	{ "api_key", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_SECRET, rlm_yubikey_t, api_key), NULL },
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	{ FR_CONF_OFFSET("client_id", PW_TYPE_INTEGER, rlm_yubikey_t, client_id), .dflt = 0 },
+	{ FR_CONF_OFFSET("api_key", PW_TYPE_STRING | PW_TYPE_SECRET, rlm_yubikey_t, api_key) },
+	CONF_PARSER_TERMINATOR
 };
 #endif
 
 static const CONF_PARSER module_config[] = {
-	{ "id_length", FR_CONF_OFFSET(PW_TYPE_INTEGER, rlm_yubikey_t, id_len), "12" },
-	{ "split", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_yubikey_t, split), "yes" },
-	{ "decrypt", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_yubikey_t, decrypt), "no" },
-	{ "validate", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_yubikey_t, validate), "no" },
+	{ FR_CONF_OFFSET("id_length", PW_TYPE_INTEGER, rlm_yubikey_t, id_len), .dflt = "12" },
+	{ FR_CONF_OFFSET("split", PW_TYPE_BOOLEAN, rlm_yubikey_t, split), .dflt = "yes" },
+	{ FR_CONF_OFFSET("decrypt", PW_TYPE_BOOLEAN, rlm_yubikey_t, decrypt), .dflt = "no" },
+	{ FR_CONF_OFFSET("validate", PW_TYPE_BOOLEAN, rlm_yubikey_t, validate), .dflt = "no" },
 #ifdef HAVE_YKCLIENT
-	{ "validation", FR_CONF_POINTER(PW_TYPE_SUBSECTION, NULL), (void const *) validation_config },
+	{ FR_CONF_POINTER("validation", PW_TYPE_SUBSECTION, NULL), .dflt = (void const *) validation_config },
 #endif
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	CONF_PARSER_TERMINATOR
 };
 
 static char const modhextab[] = "cbdefghijklnrtuv";
@@ -106,23 +106,18 @@ static ssize_t modhex2hex(char const *modhex, uint8_t *hex, size_t len)
  *
  * Example: "%{modhextohex:vvrbuctetdhc}" == "ffc1e0d3d260"
  */
-static ssize_t modhex_to_hex_xlat(UNUSED void *instance, REQUEST *request, char const *fmt, char *out, size_t outlen)
+static ssize_t modhex_to_hex_xlat(UNUSED void *instance, REQUEST *request, char const *fmt, char **out, size_t outlen)
 {
 	ssize_t len;
 
-	if (outlen < strlen(fmt)) {
-		*out = '\0';
-		return 0;
-	}
+	if (outlen < strlen(fmt)) return 0;
 
 	/*
 	 *	mod2hex allows conversions in place
 	 */
-	len = modhex2hex(fmt, (uint8_t *) out, strlen(fmt));
+	len = modhex2hex(fmt, (uint8_t *) *out, strlen(fmt));
 	if (len <= 0) {
-		*out = '\0';
 		REDEBUG("Modhex string invalid");
-
 		return -1;
 	}
 
@@ -146,7 +141,7 @@ static int mod_bootstrap(CONF_SECTION *conf, void *instance)
 
 	if (!cf_section_name2(conf)) return 0;
 
-	xlat_register("modhextohex", modhex_to_hex_xlat, NULL, inst);
+	xlat_register("modhextohex", modhex_to_hex_xlat, XLAT_DEFAULT_BUF_LEN, NULL, inst);
 
 	return 0;
 }
@@ -281,7 +276,7 @@ static rlm_rcode_t CC_HINT(nonnull) mod_authorize(void *instance, REQUEST *reque
 		 *	Insert a new request attribute just containing the OTP
 		 *	portion.
 		 */
-		vp = pairmake_packet("Yubikey-OTP", otp, T_OP_SET);
+		vp = pair_make_request("Yubikey-OTP", otp, T_OP_SET);
 		if (!vp) {
 			REDEBUG("Failed creating 'Yubikey-OTP' attribute");
 			return RLM_MODULE_FAIL;
@@ -293,7 +288,7 @@ static rlm_rcode_t CC_HINT(nonnull) mod_authorize(void *instance, REQUEST *reque
 		 */
 		MEM(password = talloc_array(request->password, char, password_len + 1));
 		strlcpy(password, passcode, password_len + 1);
-		pairstrsteal(request->password, password);
+		fr_pair_value_strsteal(request->password, password);
 
 		RINDENT();
 		if (RDEBUG_ENABLED3) {
@@ -318,19 +313,19 @@ static rlm_rcode_t CC_HINT(nonnull) mod_authorize(void *instance, REQUEST *reque
 	 *	It's left up to the user if they want to decode it or not.
 	 */
 	if (inst->id_len) {
-		vp = pairmake(request, &request->packet->vps, "Yubikey-Public-ID", NULL, T_OP_SET);
+		vp = fr_pair_make(request, &request->packet->vps, "Yubikey-Public-ID", NULL, T_OP_SET);
 		if (!vp) {
 			REDEBUG("Failed creating Yubikey-Public-ID");
 
 			return RLM_MODULE_FAIL;
 		}
 
-		pairbstrncpy(vp, passcode, inst->id_len);
+		fr_pair_value_bstrncpy(vp, passcode, inst->id_len);
 	}
 
 	dval = dict_valbyname(PW_AUTH_TYPE, 0, inst->name);
 	if (dval) {
-		vp = radius_paircreate(request, &request->config, PW_AUTH_TYPE, 0);
+		vp = radius_pair_create(request, &request->config, PW_AUTH_TYPE, 0);
 		vp->vp_integer = dval->value;
 	}
 
@@ -357,7 +352,7 @@ static rlm_rcode_t CC_HINT(nonnull) mod_authenticate(void *instance, REQUEST *re
 		goto user_password;
 	}
 
-	vp = pair_find_by_da(request->packet->vps, da, TAG_ANY);
+	vp = fr_pair_find_by_da(request->packet->vps, da, TAG_ANY);
 	if (!vp) {
 		RDEBUG2("No Yubikey-OTP attribute found, falling back to User-Password");
 	user_password:

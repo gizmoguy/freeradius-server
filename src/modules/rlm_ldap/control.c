@@ -32,17 +32,21 @@
  *
  * @param[out] serverctrls_out Where to write serverctrls.
  * @param[out] clientctrls_out Where to write clientctrls.
+ * @param[in] serverctrls_len length of serverctrls array.
+ * @param[in] clientctrls_len length of clientctrls array.
  * @param[in] conn to get controls from.
  * @param[in] serverctrls_in from arguments.
  * @param[in] clientctrls_in from_arguments.
  */
- void rlm_ldap_control_merge(LDAPControl *serverctrls_out[LDAP_MAX_CONTROLS],
-				   LDAPControl *clientctrls_out[LDAP_MAX_CONTROLS],
-				   ldap_handle_t *conn,
-				   LDAPControl *serverctrls_in[],
-				   LDAPControl *clientctrls_in[])
+ void rlm_ldap_control_merge(LDAPControl *serverctrls_out[],
+			     LDAPControl *clientctrls_out[],
+ 			     size_t serverctrls_len,
+			     size_t clientctrls_len,
+			     ldap_handle_t *conn,
+			     LDAPControl *serverctrls_in[],
+			     LDAPControl *clientctrls_in[])
 {
-	int i, num_serverctrls = 0, num_clientctrls = 0;
+	size_t i, num_serverctrls = 0, num_clientctrls = 0;
 
 	if (serverctrls_in) {
 		for (i = 0; serverctrls_in[i] && (num_serverctrls < LDAP_MAX_CONTROLS); i++) {
@@ -56,11 +60,11 @@
 		}
 	}
 
-	for (i = 0; (i < conn->serverctrls_cnt) && (num_serverctrls < LDAP_MAX_CONTROLS); i++) {
+	for (i = 0; (i < (size_t)conn->serverctrls_cnt) && (num_serverctrls < serverctrls_len); i++) {
 		serverctrls_out[num_serverctrls++] = conn->serverctrls[i].control;
 	}
 
-	for (i = 0; (i < conn->clientctrls_cnt) && (num_clientctrls < LDAP_MAX_CONTROLS); i++) {
+	for (i = 0; (i < (size_t)conn->clientctrls_cnt) && (num_clientctrls < clientctrls_len); i++) {
 		clientctrls_out[num_clientctrls++] = conn->clientctrls[i].control;
 	}
 
@@ -126,7 +130,7 @@ int rlm_ldap_control_add_client(ldap_handle_t *conn, LDAPControl *ctrl, bool fre
 
 	for (i = 0; i < conn->serverctrls_cnt; i++) {
 		if (conn->serverctrls[i].freeit) ldap_control_free(conn->serverctrls[i].control);
-		conn->clientctrls[i].freeit = false;
+		conn->serverctrls[i].freeit = false;
 		conn->serverctrls[i].control = NULL;
 	}
 	conn->serverctrls_cnt = 0;
@@ -188,7 +192,7 @@ int rlm_ldap_control_add_session_tracking(ldap_handle_t *conn, REQUEST *request)
 		if (vp->da->vendor == 0) switch (vp->da->attr) {
 		case PW_NAS_IP_ADDRESS:
 		case PW_NAS_IPV6_ADDRESS:
-			vp_prints_value(ipaddress, sizeof(ipaddress), vp, '\0');
+			fr_pair_value_snprint(ipaddress, sizeof(ipaddress), vp, '\0');
 			break;
 
 		case PW_USER_NAME:

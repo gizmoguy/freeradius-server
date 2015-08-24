@@ -85,13 +85,13 @@ int radius_compare_vps(UNUSED REQUEST *request, VALUE_PAIR *check, VALUE_PAIR *v
 		if (check->da->type == PW_TYPE_STRING) {
 			expr_p = check->vp_strvalue;
 		} else {
-			expr_p = expr = vp_aprints_value(check, check, '\0');
+			expr_p = expr = fr_pair_value_asprint(check, check, '\0');
 		}
 
 		if (vp->da->type == PW_TYPE_STRING) {
 			value_p = vp->vp_strvalue;
 		} else {
-			value_p = value = vp_aprints_value(vp, vp, '\0');
+			value_p = value = fr_pair_value_asprint(vp, vp, '\0');
 		}
 
 		if (!expr_p || !value_p) {
@@ -525,7 +525,7 @@ int paircompare(REQUEST *request, VALUE_PAIR *req_list, VALUE_PAIR *check,
 				WARN("Are you sure you don't mean Cleartext-Password?");
 				WARN("See \"man rlm_pap\" for more information");
 			}
-			if (pairfind(req_list, PW_USER_PASSWORD, 0, TAG_ANY) == NULL) {
+			if (fr_pair_find_by_num(req_list, PW_USER_PASSWORD, 0, TAG_ANY) == NULL) {
 				continue;
 			}
 			break;
@@ -587,7 +587,7 @@ int paircompare(REQUEST *request, VALUE_PAIR *req_list, VALUE_PAIR *check,
 		case T_OP_EQ:
 		default:
 			RWDEBUG("Invalid operator '%s' for item %s: reverting to '=='",
-				fr_int2str(fr_tokens, check_item->op, "<INVALID>"), check_item->da->name);
+				fr_int2str(fr_tokens_table, check_item->op, "<INVALID>"), check_item->da->name);
 			/* FALL-THROUGH */
 		case T_OP_CMP_TRUE:
 		case T_OP_CMP_FALSE:
@@ -638,7 +638,7 @@ int paircompare(REQUEST *request, VALUE_PAIR *req_list, VALUE_PAIR *check,
 	return result;
 }
 
-/** Expands an attribute marked with pairmark_xlat
+/** Expands an attribute marked with fr_pair_mark_xlat
  *
  * Writes the new value to the vp.
  *
@@ -672,11 +672,11 @@ int radius_xlat_do(REQUEST *request, VALUE_PAIR *vp)
 	 *	then we just want to copy the new value in unmolested.
 	 */
 	if ((vp->op == T_OP_REG_EQ) || (vp->op == T_OP_REG_NE)) {
-		pairstrsteal(vp, expanded);
+		fr_pair_value_strsteal(vp, expanded);
 		return 0;
 	}
 
-	if (pairparsevalue(vp, expanded, -1) < 0){
+	if (fr_pair_value_from_str(vp, expanded, -1) < 0){
 		talloc_free(expanded);
 		return -2;
 	}
@@ -698,19 +698,19 @@ int radius_xlat_do(REQUEST *request, VALUE_PAIR *vp)
  * @param[in] vendor number.
  * @return a new #VALUE_PAIR or causes server to exit on error.
  */
-VALUE_PAIR *radius_paircreate(TALLOC_CTX *ctx, VALUE_PAIR **vps,
+VALUE_PAIR *radius_pair_create(TALLOC_CTX *ctx, VALUE_PAIR **vps,
 			      unsigned int attribute, unsigned int vendor)
 {
 	VALUE_PAIR *vp;
 
-	vp = paircreate(ctx, attribute, vendor);
+	vp = fr_pair_afrom_num(ctx, attribute, vendor);
 	if (!vp) {
 		ERROR("No memory!");
 		rad_assert("No memory" == NULL);
 		fr_exit_now(1);
 	}
 
-	if (vps) pairadd(vps, vp);
+	if (vps) fr_pair_add(vps, vp);
 
 	return vp;
 }
@@ -723,7 +723,7 @@ void debug_pair(VALUE_PAIR *vp)
 {
 	if (!vp || !rad_debug_lvl || !fr_log_fp) return;
 
-	vp_print(fr_log_fp, vp);
+	fr_pair_fprint(fr_log_fp, vp);
 }
 
 /** Print a single valuepair to stderr or error log.
@@ -740,7 +740,7 @@ void rdebug_pair(log_lvl_t level, REQUEST *request, VALUE_PAIR *vp, char const *
 
 	if (!radlog_debug_enabled(L_DBG, level, request)) return;
 
-	vp_prints(buffer, sizeof(buffer), vp);
+	fr_pair_snprint(buffer, sizeof(buffer), vp);
 	RDEBUGX(level, "%s%s", prefix ? prefix : "",  buffer);
 }
 
@@ -765,7 +765,7 @@ void rdebug_pair_list(log_lvl_t level, REQUEST *request, VALUE_PAIR *vp, char co
 	     vp = fr_cursor_next(&cursor)) {
 		VERIFY_VP(vp);
 
-		vp_prints(buffer, sizeof(buffer), vp);
+		fr_pair_snprint(buffer, sizeof(buffer), vp);
 		RDEBUGX(level, "%s%s", prefix ? prefix : "",  buffer);
 	}
 	REXDENT();
@@ -792,7 +792,7 @@ void rdebug_proto_pair_list(log_lvl_t level, REQUEST *request, VALUE_PAIR *vp)
 		VERIFY_VP(vp);
 		if ((vp->da->vendor == 0) &&
 		    ((vp->da->attr & 0xFFFF) > 0xff)) continue;
-		vp_prints(buffer, sizeof(buffer), vp);
+		fr_pair_snprint(buffer, sizeof(buffer), vp);
 		RDEBUGX(level, "%s", buffer);
 	}
 	REXDENT();
@@ -868,7 +868,7 @@ void vmodule_failure_msg(REQUEST *request, char const *fmt, va_list ap)
 	VALUE_PAIR *vp;
 	va_list aq;
 
-	if (!fmt || !request->packet) {
+	if (!fmt || !request || !request->packet) {
 		return;
 	}
 
@@ -885,11 +885,11 @@ void vmodule_failure_msg(REQUEST *request, char const *fmt, va_list ap)
 	p = talloc_vasprintf(request, fmt, aq);
 	va_end(aq);
 
-	MEM(vp = pairmake_packet("Module-Failure-Message", NULL, T_OP_ADD));
+	MEM(vp = pair_make_request("Module-Failure-Message", NULL, T_OP_ADD));
 	if (request->module && (request->module[0] != '\0')) {
-		pairsprintf(vp, "%s: %s", request->module, p);
+		fr_pair_value_snprintf(vp, "%s: %s", request->module, p);
 	} else {
-		pairsprintf(vp, "%s", p);
+		fr_pair_value_snprintf(vp, "%s", p);
 	}
 	talloc_free(p);
 }

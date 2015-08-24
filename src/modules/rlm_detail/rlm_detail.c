@@ -72,14 +72,14 @@ typedef struct detail_instance {
 } rlm_detail_t;
 
 static const CONF_PARSER module_config[] = {
-	{ "filename", FR_CONF_OFFSET(PW_TYPE_FILE_OUTPUT | PW_TYPE_REQUIRED | PW_TYPE_XLAT, rlm_detail_t, filename), "%A/%{Client-IP-Address}/detail" },
-	{ "header", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_XLAT, rlm_detail_t, header), "%t" },
-	{ "permissions", FR_CONF_OFFSET(PW_TYPE_INTEGER, rlm_detail_t, perm), "0600" },
-	{ "group", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_detail_t, group), NULL },
-	{ "locking", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_detail_t, locking), "no" },
-	{ "escape_filenames", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_detail_t, escape), "no" },
-	{ "log_packet_header", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_detail_t, log_srcdst), "no" },
-	{ NULL, -1, 0, NULL, NULL }
+	{ FR_CONF_OFFSET("filename", PW_TYPE_FILE_OUTPUT | PW_TYPE_REQUIRED | PW_TYPE_XLAT, rlm_detail_t, filename), .dflt = "%A/%{Client-IP-Address}/detail" },
+	{ FR_CONF_OFFSET("header", PW_TYPE_STRING | PW_TYPE_XLAT, rlm_detail_t, header), .dflt = "%t" },
+	{ FR_CONF_OFFSET("permissions", PW_TYPE_INTEGER, rlm_detail_t, perm), .dflt = "0600" },
+	{ FR_CONF_OFFSET("group", PW_TYPE_STRING, rlm_detail_t, group) },
+	{ FR_CONF_OFFSET("locking", PW_TYPE_BOOLEAN, rlm_detail_t, locking), .dflt = "no" },
+	{ FR_CONF_OFFSET("escape_filenames", PW_TYPE_BOOLEAN, rlm_detail_t, escape), .dflt = "no" },
+	{ FR_CONF_OFFSET("log_packet_header", PW_TYPE_BOOLEAN, rlm_detail_t, log_srcdst), .dflt = "no" },
+	CONF_PARSER_TERMINATOR
 };
 
 
@@ -195,7 +195,7 @@ static int mod_instantiate(CONF_SECTION *conf, void *instance)
 /*
  *	Wrapper for VPs allocated on the stack.
  */
-static void detail_vp_print(TALLOC_CTX *ctx, FILE *out, VALUE_PAIR const *stacked)
+static void detail_fr_pair_fprint(TALLOC_CTX *ctx, FILE *out, VALUE_PAIR const *stacked)
 {
 	VALUE_PAIR *vp;
 
@@ -204,7 +204,7 @@ static void detail_vp_print(TALLOC_CTX *ctx, FILE *out, VALUE_PAIR const *stacke
 
 	memcpy(vp, stacked, sizeof(*vp));
 	vp->op = T_OP_EQ;
-	vp_print(out, vp);
+	fr_pair_fprint(out, vp);
 	talloc_free(vp);
 }
 
@@ -278,16 +278,16 @@ static int detail_write(FILE *out, rlm_detail_t *inst, REQUEST *request, RADIUS_
 			break;
 		}
 
-		detail_vp_print(request, out, &src_vp);
-		detail_vp_print(request, out, &dst_vp);
+		detail_fr_pair_fprint(request, out, &src_vp);
+		detail_fr_pair_fprint(request, out, &dst_vp);
 
 		src_vp.da = dict_attrbyvalue(PW_PACKET_SRC_PORT, 0);
 		src_vp.vp_integer = packet->src_port;
 		dst_vp.da = dict_attrbyvalue(PW_PACKET_DST_PORT, 0);
 		dst_vp.vp_integer = packet->dst_port;
 
-		detail_vp_print(request, out, &src_vp);
-		detail_vp_print(request, out, &dst_vp);
+		detail_fr_pair_fprint(request, out, &src_vp);
+		detail_fr_pair_fprint(request, out, &dst_vp);
 	}
 
 	{
@@ -310,7 +310,7 @@ static int detail_write(FILE *out, rlm_detail_t *inst, REQUEST *request, RADIUS_
 			 */
 			op = vp->op;
 			vp->op = T_OP_EQ;
-			vp_print(out, vp);
+			fr_pair_fprint(out, vp);
 			vp->op = op;
 		}
 	}

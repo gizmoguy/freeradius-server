@@ -210,39 +210,6 @@ static cache_status_t cache_entry_find(rlm_cache_entry_t **out,
 	return CACHE_OK;
 }
 
-/** Insert a new entry into the data store
- *
- * @note handle not used except for sanity checks.
- *
- * @copydetails cache_entry_insert_t
- */
-static cache_status_t cache_entry_insert(UNUSED rlm_cache_config_t const *config, void *driver_inst,
-					 REQUEST *request, void *handle,
-					 rlm_cache_entry_t const *c)
-{
-	rlm_cache_rbtree_t *driver = driver_inst;
-	rlm_cache_entry_t *my_c;
-
-	rad_assert(handle == request);
-
-	memcpy(&my_c, &c, sizeof(my_c));
-
-	if (!rbtree_insert(driver->cache, my_c)) {
-		RERROR("Failed adding entry");
-
-		return CACHE_ERROR;
-	}
-
-	if (!fr_heap_insert(driver->heap, my_c)) {
-		rbtree_deletebydata(driver->cache, my_c);
-		RERROR("Failed adding entry to expiry heap");
-
-		return CACHE_ERROR;
-	}
-
-	return CACHE_OK;
-}
-
 /** Free an entry and remove it from the data store
  *
  * @note handle not used except for sanity checks.
@@ -270,6 +237,49 @@ static cache_status_t cache_entry_expire(UNUSED rlm_cache_config_t const *config
 	return CACHE_OK;
 }
 
+/** Insert a new entry into the data store
+ *
+ * @note handle not used except for sanity checks.
+ *
+ * @copydetails cache_entry_insert_t
+ */
+static cache_status_t cache_entry_insert(rlm_cache_config_t const *config, void *driver_inst,
+					 REQUEST *request, void *handle,
+					 rlm_cache_entry_t const *c)
+{
+	cache_status_t status;
+
+	rlm_cache_rbtree_t *driver = driver_inst;
+	rlm_cache_entry_t *my_c;
+
+	rad_assert(handle == request);
+
+	memcpy(&my_c, &c, sizeof(my_c));
+
+	/*
+	 *	Allow overwriting
+	 */
+	if (!rbtree_insert(driver->cache, my_c)) {
+		status = cache_entry_expire(config, driver_inst, request, handle, c->key, c->key_len);
+		if (status != CACHE_OK) rad_assert(0);
+
+		if (!rbtree_insert(driver->cache, my_c)) {
+			RERROR("Failed adding entry");
+
+			return CACHE_ERROR;
+		}
+	}
+
+	if (!fr_heap_insert(driver->heap, my_c)) {
+		rbtree_deletebydata(driver->cache, my_c);
+		RERROR("Failed adding entry to expiry heap");
+
+		return CACHE_ERROR;
+	}
+
+	return CACHE_OK;
+}
+
 /** Update the TTL of an entry
  *
  * @note handle not used except for sanity checks.
@@ -284,7 +294,11 @@ static cache_status_t cache_entry_set_ttl(UNUSED rlm_cache_config_t const *confi
 	int ret;
 
 	ret = fr_heap_extract(driver->heap, c);
-	rad_assert(ret == 1);	/* must be in the tree */
+	rad_assert(ret == 1);
+	if (ret != 1) {					/* Need this check if we're not building with asserts */
+		RERROR("Entry not in heap");
+		return CACHE_ERROR;
+	}
 
 	if (!fr_heap_insert(driver->heap, c)) {
 		rbtree_deletebydata(driver->cache, c);	/* make sure we don't leak entries... */

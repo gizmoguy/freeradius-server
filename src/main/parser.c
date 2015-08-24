@@ -47,14 +47,14 @@ static const FR_NAME_NUMBER allowed_return_codes[] = {
  *	This file shouldn't use any functions from the server core.
  */
 
-size_t fr_cond_sprint(char *buffer, size_t bufsize, fr_cond_t const *in)
+size_t fr_cond_snprint(char *out, size_t outlen, fr_cond_t const *in)
 {
-	size_t len;
-	char *p = buffer;
-	char *end = buffer + bufsize - 1;
-	fr_cond_t const *c = in;
+	size_t		len;
+	char		*p = out;
+	char		*end = out + outlen - 1;
+	fr_cond_t const	*c = in;
 
-	rad_assert(bufsize > 0);
+	rad_assert(outlen > 0);
 
 next:
 	if (!c) {
@@ -75,8 +75,8 @@ next:
 			p += len;
 		}
 
-		len = tmpl_prints(p, end - p, c->data.vpt, NULL);
-		p += len;
+		len = tmpl_snprint(p, end - p, c->data.vpt, NULL);
+		RETURN_IF_TRUNCATED(p, len, end - p);
 		break;
 
 	case COND_TYPE_MAP:
@@ -85,13 +85,12 @@ next:
 		*(p++) = '[';	/* for extra-clear debugging */
 #endif
 		if (c->cast) {
-			len = snprintf(p, end - p, "<%s>", fr_int2str(dict_attr_types,
-								      c->cast->type, "??"));
-			p += len;
+			len = snprintf(p, end - p, "<%s>", fr_int2str(dict_attr_types, c->cast->type, "??"));
+			RETURN_IF_TRUNCATED(p, len, end - p);
 		}
 
-		len = map_prints(p, end - p, c->data.map);
-		p += len;
+		len = map_snprint(p, end - p, c->data.map);
+		RETURN_IF_TRUNCATED(p, len, end - p);
 #if 0
 		*(p++) = ']';
 #endif
@@ -100,37 +99,39 @@ next:
 	case COND_TYPE_CHILD:
 		rad_assert(c->data.child != NULL);
 		*(p++) = '(';
-		len = fr_cond_sprint(p, end - p, c->data.child);
-		p += len;
+		len = fr_cond_snprint(p, (end - p) - 1, c->data.child);	/* -1 for proceeding ')' */
+		RETURN_IF_TRUNCATED(p, len, end - p);
 		*(p++) = ')';
 		break;
 
 	case COND_TYPE_TRUE:
-		strlcpy(buffer, "true", bufsize);
-		return strlen(buffer);
+		len = strlcpy(out, "true", outlen);
+		RETURN_IF_TRUNCATED(p, len, end - p);
+		return p - out;
 
 	case COND_TYPE_FALSE:
-		strlcpy(buffer, "false", bufsize);
-		return strlen(buffer);
+		len = strlcpy(out, "false", outlen);
+		RETURN_IF_TRUNCATED(p, len, end - p);
+		return p - out;
 
 	default:
-		*buffer = '\0';
+		*out = '\0';
 		return 0;
 	}
 
 	if (c->next_op == COND_NONE) {
 		rad_assert(c->next == NULL);
 		*p = '\0';
-		return p - buffer;
+		return p - out;
 	}
 
 	if (c->next_op == COND_AND) {
-		strlcpy(p, " && ", end - p);
-		p += strlen(p);
+		len = strlcpy(p, " && ", end - p);
+		RETURN_IF_TRUNCATED(p, len, end - p);
 
 	} else if (c->next_op == COND_OR) {
-		strlcpy(p, " || ", end - p);
-		p += strlen(p);
+		len = strlcpy(p, " || ", end - p);
+		RETURN_IF_TRUNCATED(p, len, end - p);
 
 	} else {
 		rad_assert(0 == 1);
@@ -867,7 +868,7 @@ static ssize_t condition_tokenize(TALLOC_CTX *ctx, CONF_ITEM *ci, char const *st
 				 *	The LHS is a literal which has been cast to a data type.
 				 *	Cast it to the appropriate data type.
 				 */
-				if ((c->data.map->lhs->type == TMPL_TYPE_LITERAL) &&
+				if ((c->data.map->lhs->type == TMPL_TYPE_UNPARSED) &&
 				    (tmpl_cast_in_place(c->data.map->lhs, c->cast->type, c->cast) < 0)) {
 					*error = "Failed to parse field";
 					if (lhs) talloc_free(lhs);
@@ -881,7 +882,7 @@ static ssize_t condition_tokenize(TALLOC_CTX *ctx, CONF_ITEM *ci, char const *st
 				 *	type.
 				 */
 				if ((c->data.map->lhs->type == TMPL_TYPE_DATA) &&
-				    (c->data.map->rhs->type == TMPL_TYPE_LITERAL) &&
+				    (c->data.map->rhs->type == TMPL_TYPE_UNPARSED) &&
 				    (tmpl_cast_in_place(c->data.map->rhs, c->cast->type, c->cast) < 0)) {
 					return_rhs("Failed to parse field");
 				}
@@ -1034,7 +1035,7 @@ static ssize_t condition_tokenize(TALLOC_CTX *ctx, CONF_ITEM *ci, char const *st
 				 *	The LHS has been cast to a data type, and the RHS is a
 				 *	literal.  Cast the RHS to the type of the cast.
 				 */
-				if (c->cast && (c->data.map->rhs->type == TMPL_TYPE_LITERAL) &&
+				if (c->cast && (c->data.map->rhs->type == TMPL_TYPE_UNPARSED) &&
 				    (tmpl_cast_in_place(c->data.map->rhs, c->cast->type, c->cast) < 0)) {
 					return_rhs("Failed to parse field");
 				}
@@ -1049,7 +1050,7 @@ static ssize_t condition_tokenize(TALLOC_CTX *ctx, CONF_ITEM *ci, char const *st
 				 *	This allows Framed-IP-Address < 192.168.0.0./24
 				 */
 				if ((c->data.map->lhs->type == TMPL_TYPE_ATTR) &&
-				    ((c->data.map->rhs->type == TMPL_TYPE_LITERAL) ||
+				    ((c->data.map->rhs->type == TMPL_TYPE_UNPARSED) ||
 				     (c->data.map->rhs->type == TMPL_TYPE_DATA))) {
 					PW_TYPE type;
 
@@ -1120,9 +1121,9 @@ static ssize_t condition_tokenize(TALLOC_CTX *ctx, CONF_ITEM *ci, char const *st
 				 *	and do no parsing until after all of the modules
 				 *	are loaded.  But that has issues, too.
 				 */
-				if ((c->data.map->lhs->type == TMPL_TYPE_LITERAL) &&
+				if ((c->data.map->lhs->type == TMPL_TYPE_UNPARSED) &&
 				    (lhs_type == T_BARE_WORD) &&
-				    (c->data.map->rhs->type == TMPL_TYPE_LITERAL)) {
+				    (c->data.map->rhs->type == TMPL_TYPE_UNPARSED)) {
 					int hyphens = 0;
 					bool may_be_attr = true;
 					size_t i;
@@ -1387,8 +1388,8 @@ done:
 		 *	We can do the evaluation here, so that it
 		 *	doesn't need to be done at run time
 		 */
-		if ((c->data.map->rhs->type == TMPL_TYPE_LITERAL) &&
-		    (c->data.map->lhs->type == TMPL_TYPE_LITERAL) &&
+		if ((c->data.map->rhs->type == TMPL_TYPE_UNPARSED) &&
+		    (c->data.map->lhs->type == TMPL_TYPE_UNPARSED) &&
 		    !c->pass2_fixup) {
 			int rcode;
 
@@ -1400,7 +1401,7 @@ done:
 			} else {
 				DEBUG3("OPTIMIZING (%s %s %s) --> FALSE",
 				       c->data.map->lhs->name,
-				       fr_int2str(fr_tokens, c->data.map->op, "??"),
+				       fr_int2str(fr_tokens_table, c->data.map->op, "??"),
 				       c->data.map->rhs->name);
 				c->type = COND_TYPE_FALSE;
 			}
@@ -1457,7 +1458,7 @@ done:
 			/*
 			 *	This must have been parsed into TMPL_TYPE_DATA.
 			 */
-			rad_assert(c->data.map->rhs->type != TMPL_TYPE_LITERAL);
+			rad_assert(c->data.map->rhs->type != TMPL_TYPE_UNPARSED);
 		}
 
 	} while (0);
@@ -1500,7 +1501,7 @@ done:
 			 *	Bare words must be module return
 			 *	codes.
 			 */
-		case TMPL_TYPE_LITERAL:
+		case TMPL_TYPE_UNPARSED:
 			if ((strcmp(c->data.vpt->name, "true") == 0) ||
 			    (strcmp(c->data.vpt->name, "1") == 0)) {
 				c->type = COND_TYPE_TRUE;

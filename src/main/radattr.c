@@ -61,10 +61,28 @@ pid_t rad_waitpid(pid_t pid, int *status)
 }
 
 static ssize_t xlat_test(UNUSED void *instance, UNUSED REQUEST *request,
-			 UNUSED char const *fmt, UNUSED char *out, UNUSED size_t outlen)
+			 UNUSED char const *fmt, UNUSED char **out, UNUSED size_t outlen)
 {
 	return 0;
 }
+
+static RADIUS_PACKET my_original = {
+	.sockfd = -1,
+	.id = 0,
+	.code = PW_CODE_ACCESS_REQUEST,
+	.vector = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f },
+};
+
+
+static RADIUS_PACKET my_packet = {
+	.sockfd = -1,
+	.id = 0,
+	.code = PW_CODE_ACCESS_ACCEPT,
+	.vector = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f },
+};
+
+
+static char const *my_secret = "testing123";
 
 /*
  *	End of hacks for xlat
@@ -528,7 +546,7 @@ static void parse_condition(char const *input, char *output, size_t outlen)
 		return;
 	}
 
-	fr_cond_sprint(output, outlen, cond);
+	fr_cond_snprint(output, outlen, cond);
 
 	talloc_free(cond);
 }
@@ -551,7 +569,7 @@ static void parse_xlat(char const *input, char *output, size_t outlen)
 		return;
 	}
 
-	xlat_sprint(output, outlen, head);
+	xlat_snprint(output, outlen, head);
 	talloc_free(fmt);
 }
 
@@ -671,7 +689,7 @@ static void process_file(const char *root_dir, char const *filename)
 				p += 7;
 			}
 
-			if (userparse(NULL, p, &head) != T_EOL) {
+			if (fr_pair_list_afrom_str(NULL, p, &head) != T_EOL) {
 				strlcpy(output, fr_strerror(), sizeof(output));
 				continue;
 			}
@@ -679,7 +697,7 @@ static void process_file(const char *root_dir, char const *filename)
 			attr = data;
 			vp = head;
 			while (vp) {
-				len = rad_vp2attr(NULL, NULL, NULL, (VALUE_PAIR const **)(void **)&vp,
+				len = rad_vp2attr(&my_packet, &my_original, my_secret, (VALUE_PAIR const **)(void **)&vp,
 						  attr, data + sizeof(data) - attr);
 				if (len < 0) {
 					fprintf(stderr, "Failed encoding %s: %s\n",
@@ -691,7 +709,7 @@ static void process_file(const char *root_dir, char const *filename)
 				if (len == 0) break;
 			}
 
-			pairfree(&head);
+			fr_pair_list_free(&head);
 			outlen = attr - data;
 			goto print_hex;
 		}
@@ -714,9 +732,9 @@ static void process_file(const char *root_dir, char const *filename)
 			my_len = 0;
 			while (len > 0) {
 				vp = NULL;
-				my_len = rad_attr2vp(NULL, NULL, NULL, NULL, attr, len, &vp);
+				my_len = rad_attr2vp(NULL, &my_packet, &my_original, my_secret, attr, len, &vp);
 				if (my_len < 0) {
-					pairfree(&head);
+					fr_pair_list_free(&head);
 					break;
 				}
 
@@ -745,7 +763,7 @@ static void process_file(const char *root_dir, char const *filename)
 				for (vp = fr_cursor_init(&cursor, &head);
 				     vp;
 				     vp = fr_cursor_next(&cursor)) {
-					vp_prints(p, sizeof(output) - (p - output), vp);
+					fr_pair_snprint(p, sizeof(output) - (p - output), vp);
 					p += strlen(p);
 
 					if (vp->next) {strcpy(p, ", ");
@@ -753,7 +771,7 @@ static void process_file(const char *root_dir, char const *filename)
 					}
 				}
 
-				pairfree(&head);
+				fr_pair_list_free(&head);
 			} else if (my_len < 0) {
 				strlcpy(output, fr_strerror(), sizeof(output));
 
@@ -775,7 +793,7 @@ static void process_file(const char *root_dir, char const *filename)
 				p += 12;
 			}
 
-			if (userparse(NULL, p, &head) != T_EOL) {
+			if (fr_pair_list_afrom_str(NULL, p, &head) != T_EOL) {
 				strlcpy(output, fr_strerror(), sizeof(output));
 				continue;
 			}
@@ -797,7 +815,7 @@ static void process_file(const char *root_dir, char const *filename)
 				attr += len;
 			};
 
-			pairfree(&head);
+			fr_pair_list_free(&head);
 			outlen = attr - data;
 			goto print_hex;
 		}
@@ -829,7 +847,7 @@ static void process_file(const char *root_dir, char const *filename)
 				for (vp = fr_cursor_init(&cursor, &head);
 				     vp;
 				     vp = fr_cursor_next(&cursor)) {
-					vp_prints(p, sizeof(output) - (p - output), vp);
+					fr_pair_snprint(p, sizeof(output) - (p - output), vp);
 					p += strlen(p);
 
 					if (vp->next) {strcpy(p, ", ");
@@ -837,7 +855,7 @@ static void process_file(const char *root_dir, char const *filename)
 					}
 				}
 
-				pairfree(&head);
+				fr_pair_list_free(&head);
 			} else if (my_len < 0) {
 				strlcpy(output, fr_strerror(), sizeof(output));
 
@@ -850,12 +868,12 @@ static void process_file(const char *root_dir, char const *filename)
 		if (strncmp(p, "attribute ", 10) == 0) {
 			p += 10;
 
-			if (userparse(NULL, p, &head) != T_EOL) {
+			if (fr_pair_list_afrom_str(NULL, p, &head) != T_EOL) {
 				strlcpy(output, fr_strerror(), sizeof(output));
 				continue;
 			}
 
-			vp_prints(output, sizeof(output), head);
+			fr_pair_snprint(output, sizeof(output), head);
 			continue;
 		}
 
@@ -896,6 +914,17 @@ static void process_file(const char *root_dir, char const *filename)
 	if (fp != stdin) fclose(fp);
 }
 
+static void NEVER_RETURNS usage(void)
+{
+	fprintf(stderr, "usage: radattr [OPTS] filename\n");
+	fprintf(stderr, "  -d <raddb>             Set user dictionary directory (defaults to " RADDBDIR ").\n");
+	fprintf(stderr, "  -D <dictdir>           Set main dictionary directory (defaults to " DICTDIR ").\n");
+	fprintf(stderr, "  -x                     Debugging mode.\n");
+	fprintf(stderr, "  -M                     Show talloc memory report.\n");
+
+	exit(1);
+}
+
 int main(int argc, char *argv[])
 {
 	int c;
@@ -910,7 +939,7 @@ int main(int argc, char *argv[])
 	}
 #endif
 
-	while ((c = getopt(argc, argv, "d:D:xM")) != EOF) switch (c) {
+	while ((c = getopt(argc, argv, "d:D:xMh")) != EOF) switch (c) {
 		case 'd':
 			radius_dir = optarg;
 			break;
@@ -924,9 +953,9 @@ int main(int argc, char *argv[])
 		case 'M':
 			report = true;
 			break;
+		case 'h':
 		default:
-			fprintf(stderr, "usage: radattr [OPTS] filename\n");
-			exit(1);
+			usage();
 	}
 	argc -= (optind - 1);
 	argv += (optind - 1);
@@ -949,7 +978,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	if (xlat_register("test", xlat_test, NULL, NULL) < 0) {
+	if (xlat_register("test", xlat_test, XLAT_DEFAULT_BUF_LEN, NULL, NULL) < 0) {
 		fprintf(stderr, "Failed registering xlat");
 		return 1;
 	}

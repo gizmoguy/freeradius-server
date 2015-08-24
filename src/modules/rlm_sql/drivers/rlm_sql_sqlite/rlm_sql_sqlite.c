@@ -60,9 +60,9 @@ typedef struct rlm_sql_sqlite_config {
 } rlm_sql_sqlite_config_t;
 
 static const CONF_PARSER driver_config[] = {
-	{ "filename", FR_CONF_OFFSET(PW_TYPE_FILE_OUTPUT | PW_TYPE_REQUIRED, rlm_sql_sqlite_config_t, filename), NULL },
-	{ "busy_timeout", FR_CONF_OFFSET(PW_TYPE_INTEGER, rlm_sql_sqlite_config_t, busy_timeout), "200" },
-	{NULL, -1, 0, NULL, NULL}
+	{ FR_CONF_OFFSET("filename", PW_TYPE_FILE_OUTPUT | PW_TYPE_REQUIRED, rlm_sql_sqlite_config_t, filename) },
+	{ FR_CONF_OFFSET("busy_timeout", PW_TYPE_INTEGER, rlm_sql_sqlite_config_t, busy_timeout), .dflt = "200" },
+	CONF_PARSER_TERMINATOR
 };
 
 /** Convert an sqlite status code to an sql_rcode_t
@@ -307,7 +307,7 @@ static int sql_loadfile(TALLOC_CTX *ctx, sqlite3 *db, char const *filename)
 			if ((*p != 0x0a) && (*p != 0x0d) && (*p != '\t')) break;
 			cl = 1;
 		} else {
-			cl = fr_utf8_char((uint8_t *) p);
+			cl = fr_utf8_char((uint8_t *) p, -1);
 			if (!cl) break;
 		}
 	}
@@ -523,7 +523,8 @@ static void _sql_greatest(sqlite3_context *ctx, int num_values, sqlite3_value **
 	sqlite3_result_int64(ctx, max);
 }
 
-static sql_rcode_t sql_socket_init(rlm_sql_handle_t *handle, rlm_sql_config_t *config)
+static int CC_HINT(nonnull) sql_socket_init(rlm_sql_handle_t *handle, rlm_sql_config_t *config,
+					    UNUSED struct timeval const *timeout)
 {
 	rlm_sql_sqlite_conn_t *conn;
 	rlm_sql_sqlite_config_t *driver = config->driver;

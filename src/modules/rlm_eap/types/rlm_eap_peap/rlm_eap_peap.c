@@ -48,27 +48,26 @@ typedef struct rlm_eap_peap_t {
 
 
 static CONF_PARSER module_config[] = {
-	{ "tls", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_eap_peap_t, tls_conf_name), NULL },
+	{ FR_CONF_OFFSET("tls", PW_TYPE_STRING, rlm_eap_peap_t, tls_conf_name) },
 
-	{ "default_eap_type", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_eap_peap_t, default_method_name), "mschapv2" },
+	{ FR_CONF_OFFSET("default_eap_type", PW_TYPE_STRING, rlm_eap_peap_t, default_method_name), .dflt = "mschapv2" },
 
-	{ "copy_request_to_tunnel", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_eap_peap_t, copy_request_to_tunnel), "no" },
+	{ FR_CONF_OFFSET("copy_request_to_tunnel", PW_TYPE_BOOLEAN, rlm_eap_peap_t, copy_request_to_tunnel), .dflt = "no" },
 
-	{ "use_tunneled_reply", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_eap_peap_t, use_tunneled_reply), "no" },
+	{ FR_CONF_OFFSET("use_tunneled_reply", PW_TYPE_BOOLEAN, rlm_eap_peap_t, use_tunneled_reply), .dflt = "no" },
 
 #ifdef WITH_PROXY
-	{ "proxy_tunneled_request_as_eap", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_eap_peap_t, proxy_tunneled_request_as_eap), "yes" },
+	{ FR_CONF_OFFSET("proxy_tunneled_request_as_eap", PW_TYPE_BOOLEAN, rlm_eap_peap_t, proxy_tunneled_request_as_eap), .dflt = "yes" },
 #endif
 
-	{ "virtual_server", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_eap_peap_t, virtual_server), NULL },
+	{ FR_CONF_OFFSET("virtual_server", PW_TYPE_STRING, rlm_eap_peap_t, virtual_server) },
 
-	{ "soh", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_eap_peap_t, soh), "no" },
+	{ FR_CONF_OFFSET("soh", PW_TYPE_BOOLEAN, rlm_eap_peap_t, soh), .dflt = "no" },
 
-	{ "require_client_cert", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_eap_peap_t, req_client_cert), "no" },
+	{ FR_CONF_OFFSET("require_client_cert", PW_TYPE_BOOLEAN, rlm_eap_peap_t, req_client_cert), .dflt = "no" },
 
-	{ "soh_virtual_server", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_eap_peap_t, soh_virtual_server), NULL },
-
-	{ NULL, -1, 0, NULL, NULL }	   /* end the list */
+	{ FR_CONF_OFFSET("soh_virtual_server", PW_TYPE_STRING, rlm_eap_peap_t, soh_virtual_server) },
+	CONF_PARSER_TERMINATOR
 };
 
 
@@ -137,6 +136,8 @@ static peap_tunnel_t *peap_alloc(TALLOC_CTX *ctx, rlm_eap_peap_t *inst)
 	return t;
 }
 
+static int CC_HINT(nonnull) mod_process(void *instance, eap_handler_t *handler);
+
 /*
  *	Send an initial eap-tls request to the peer, using the libeap functions.
  */
@@ -161,7 +162,7 @@ static int mod_session_init(void *type_arg, eap_handler_t *handler)
 	 * EAP-TLS-Require-Client-Cert attribute will override
 	 * the require_client_cert configuration option.
 	 */
-	vp = pairfind(handler->request->config, PW_EAP_TLS_REQUIRE_CLIENT_CERT, 0, TAG_ANY);
+	vp = fr_pair_find_by_num(handler->request->config, PW_EAP_TLS_REQUIRE_CLIENT_CERT, 0, TAG_ANY);
 	if (vp) {
 		client_cert = vp->vp_integer ? true : false;
 	} else {
@@ -210,10 +211,7 @@ static int mod_session_init(void *type_arg, eap_handler_t *handler)
 	}
 	if (status == 0) return 0;
 
-	/*
-	 *	The next stage to process the packet.
-	 */
-	handler->stage = PROCESS;
+	handler->process = mod_process;
 
 	return 1;
 }
@@ -320,14 +318,14 @@ static int mod_process(void *arg, eap_handler_t *handler)
 		if (peap->soh_reply_vps) {
 			RDEBUG2("Using saved attributes from the SoH reply");
 			rdebug_pair_list(L_DBG_LVL_2, request, peap->soh_reply_vps, NULL);
-			pairfilter(handler->request->reply,
+			fr_pair_list_move_by_num(handler->request->reply,
 				  &handler->request->reply->vps,
 				  &peap->soh_reply_vps, 0, 0, TAG_ANY);
 		}
 		if (peap->accept_vps) {
 			RDEBUG2("Using saved attributes from the original Access-Accept");
 			rdebug_pair_list(L_DBG_LVL_2, request, peap->accept_vps, NULL);
-			pairfilter(handler->request->reply,
+			fr_pair_list_move_by_num(handler->request->reply,
 				  &handler->request->reply->vps,
 				  &peap->accept_vps, 0, 0, TAG_ANY);
 		} else if (peap->use_tunneled_reply) {

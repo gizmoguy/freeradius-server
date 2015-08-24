@@ -55,9 +55,9 @@ typedef struct rlm_unbound_t {
  *	A mapping of configuration file names to internal variables.
  */
 static const CONF_PARSER module_config[] = {
-	{ "filename", FR_CONF_OFFSET(PW_TYPE_FILE_INPUT | PW_TYPE_REQUIRED, rlm_unbound_t, filename), "${modconfdir}/unbound/default.conf"  },
-	{ "timeout", FR_CONF_OFFSET(PW_TYPE_INTEGER, rlm_unbound_t, timeout), "3000" },
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	{ FR_CONF_OFFSET("filename", PW_TYPE_FILE_INPUT | PW_TYPE_REQUIRED, rlm_unbound_t, filename), .dflt = "${modconfdir}/unbound/default.conf" },
+	{ FR_CONF_OFFSET("timeout", PW_TYPE_INTEGER, rlm_unbound_t, timeout), .dflt = "3000" },
+	CONF_PARSER_TERMINATOR
 };
 
 /*
@@ -210,7 +210,7 @@ static int ub_common_fail(REQUEST *request, char const *tag, struct ub_result *u
 	return 0;
 }
 
-static ssize_t xlat_a(void *instance, REQUEST *request, char const *fmt, char *out, size_t freespace)
+static ssize_t xlat_a(void *instance, REQUEST *request, char const *fmt, char **out, size_t freespace)
 {
 	rlm_unbound_t *inst = instance;
 	struct ub_result **ubres;
@@ -236,13 +236,13 @@ static ssize_t xlat_a(void *instance, REQUEST *request, char const *fmt, char *o
 			goto error1;
 		}
 
-		if (!inet_ntop(AF_INET, (*ubres)->data[0], out, freespace)) {
+		if (!inet_ntop(AF_INET, (*ubres)->data[0], *out, freespace)) {
 			goto error1;
 		};
 
 		ub_resolve_free(*ubres);
 		talloc_free(ubres);
-		return strlen(out);
+		return strlen(*out);
 	}
 
 	RWDEBUG("rlm_unbound (%s): no result", inst->xlat_a_name);
@@ -255,7 +255,7 @@ static ssize_t xlat_a(void *instance, REQUEST *request, char const *fmt, char *o
 	return -1;
 }
 
-static ssize_t xlat_aaaa(void *instance, REQUEST *request, char const *fmt, char *out, size_t freespace)
+static ssize_t xlat_aaaa(void *instance, REQUEST *request, char const *fmt, char **out, size_t freespace)
 {
 	rlm_unbound_t *inst = instance;
 	struct ub_result **ubres;
@@ -280,12 +280,12 @@ static ssize_t xlat_aaaa(void *instance, REQUEST *request, char const *fmt, char
 		if (ub_common_fail(request, inst->xlat_aaaa_name, *ubres)) {
 			goto error1;
 		}
-		if (!inet_ntop(AF_INET6, (*ubres)->data[0], out, freespace)) {
+		if (!inet_ntop(AF_INET6, (*ubres)->data[0], *out, freespace)) {
 			goto error1;
 		};
 		ub_resolve_free(*ubres);
 		talloc_free(ubres);
-		return strlen(out);
+		return strlen(*out);
 	}
 
 	RWDEBUG("rlm_unbound (%s): no result", inst->xlat_aaaa_name);
@@ -298,7 +298,7 @@ error0:
 	return -1;
 }
 
-static ssize_t xlat_ptr(void *instance, REQUEST *request, char const *fmt, char *out, size_t freespace)
+static ssize_t xlat_ptr(void *instance, REQUEST *request, char const *fmt, char **out, size_t freespace)
 {
 	rlm_unbound_t *inst = instance;
 	struct ub_result **ubres;
@@ -324,12 +324,12 @@ static ssize_t xlat_ptr(void *instance, REQUEST *request, char const *fmt, char 
 		if (ub_common_fail(request, inst->xlat_ptr_name, *ubres)) {
 			goto error1;
 		}
-		if (rrlabels_tostr(out, (*ubres)->data[0], freespace) < 0) {
+		if (rrlabels_tostr(*out, (*ubres)->data[0], freespace) < 0) {
 			goto error1;
 		}
 		ub_resolve_free(*ubres);
 		talloc_free(ubres);
-		return strlen(out);
+		return strlen(*out);
 	}
 
 	RWDEBUG("rlm_unbound (%s): no result", inst->xlat_ptr_name);
@@ -406,9 +406,9 @@ static int mod_bootstrap(CONF_SECTION *conf, void *instance)
 	MEM(inst->xlat_aaaa_name = talloc_typed_asprintf(inst, "%s-aaaa", inst->name));
 	MEM(inst->xlat_ptr_name = talloc_typed_asprintf(inst, "%s-ptr", inst->name));
 
-	if (xlat_register(inst->xlat_a_name, xlat_a, NULL, inst) ||
-	    xlat_register(inst->xlat_aaaa_name, xlat_aaaa, NULL, inst) ||
-	    xlat_register(inst->xlat_ptr_name, xlat_ptr, NULL, inst)) {
+	if (xlat_register(inst->xlat_a_name, xlat_a, XLAT_DEFAULT_BUF_LEN, NULL, inst) ||
+	    xlat_register(inst->xlat_aaaa_name, xlat_aaaa, XLAT_DEFAULT_BUF_LEN, NULL, inst) ||
+	    xlat_register(inst->xlat_ptr_name, xlat_ptr, XLAT_DEFAULT_BUF_LEN, NULL, inst)) {
 		cf_log_err_cs(conf, "Failed registering xlats");
 		return -1;
 	}

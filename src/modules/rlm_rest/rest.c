@@ -221,18 +221,18 @@ typedef struct rest_custom_data {
 /** Flags to control the conversion of JSON values to VALUE_PAIRs.
  *
  * These fields are set when parsing the expanded format for value pairs in
- * JSON, and control how json_pairmake_leaf and json_pairmake convert the JSON
+ * JSON, and control how json_pair_make_leaf and json_pair_make convert the JSON
  * value, and move the new VALUE_PAIR into an attribute list.
  *
- * @see json_pairmake
- * @see json_pairmake_leaf
+ * @see json_pair_make
+ * @see json_pair_make_leaf
  */
 typedef struct json_flags {
 	int do_xlat;		//!< If true value will be expanded with xlat.
 	int is_json;		//!< If true value will be inserted as raw JSON
 				// (multiple values not supported).
 	FR_TOKEN op;		//!< The operator that determines how the new VP
-				// is processed. @see fr_tokens
+				// is processed. @see fr_tokens_table
 } json_flags_t;
 #endif
 
@@ -329,7 +329,7 @@ static int _mod_conn_free(rlm_rest_handle_t *randle)
  * @see fr_connection_create_t
  * @see connection.c
  */
-void *mod_conn_create(TALLOC_CTX *ctx, void *instance)
+void *mod_conn_create(TALLOC_CTX *ctx, void *instance, struct timeval const *timeout)
 {
 	rlm_rest_t *inst = instance;
 
@@ -346,7 +346,7 @@ void *mod_conn_create(TALLOC_CTX *ctx, void *instance)
 		return NULL;
 	}
 
-	SET_OPTION(CURLOPT_CONNECTTIMEOUT_MS, inst->connect_timeout);
+	SET_OPTION(CURLOPT_CONNECTTIMEOUT_MS, FR_TIMEVAL_TO_MS(timeout));
 
 	if (inst->connect_uri) {
 		/*
@@ -562,7 +562,7 @@ static size_t rest_encode_post(void *out, size_t size, size_t nmemb, void *userd
 		/*
 		 *  Write out single attribute string.
 		 */
-		len = vp_prints_value(p, freespace, vp, 0);
+		len = fr_pair_value_snprint(p, freespace, vp, 0);
 		if (is_truncated(len, freespace)) goto no_space;
 
 		RINDENT();
@@ -775,7 +775,7 @@ static size_t rest_encode_json(void *out, size_t size, size_t nmemb, void *userd
 				 *  write that out.
 				 */
 				attr_space = fr_cursor_next_peek(&ctx->cursor) ? freespace - 1 : freespace;
-				len = vp_prints_value_json(p, attr_space + 1, vp);
+				len = fr_json_from_pair(p, attr_space + 1, vp);
 				if (is_truncated(len, attr_space + 1)) goto no_space;
 
 				/*
@@ -943,7 +943,7 @@ static void rest_request_init(REQUEST *request, rlm_rest_request_t *ctx, bool so
 	 *	Sorts pairs in place, oh well...
 	 */
 	if (sort) {
-		pairsort(&request->packet->vps, attrtagcmp);
+		fr_pair_list_sort(&request->packet->vps, fr_pair_cmp_by_da_tag);
 	}
 	fr_cursor_init(&ctx->cursor, &request->packet->vps);
 }
@@ -973,8 +973,8 @@ static int rest_decode_plain(UNUSED rlm_rest_t *instance, UNUSED rlm_rest_sectio
 	/*
 	 *  Use rawlen to protect against overrun, and to cope with any binary data
 	 */
-	vp = pairmake_reply("REST-HTTP-Body", NULL, T_OP_ADD);
-	pairbstrncpy(vp, raw, rawlen);
+	vp = pair_make_reply("REST-HTTP-Body", NULL, T_OP_ADD);
+	fr_pair_value_bstrncpy(vp, raw, rawlen);
 
 	RDEBUG2("Adding reply:REST-HTTP-Body += \"%s\"", vp->vp_strvalue);
 
@@ -1116,7 +1116,7 @@ static int rest_decode_post(UNUSED rlm_rest_t *instance, UNUSED rlm_rest_section
 			goto skip;
 		}
 
-		vp = pairalloc(ctx, da);
+		vp = fr_pair_afrom_da(ctx, da);
 		if (!vp) {
 			REDEBUG("Failed creating valuepair");
 			talloc_free(expanded);
@@ -1124,7 +1124,7 @@ static int rest_decode_post(UNUSED rlm_rest_t *instance, UNUSED rlm_rest_section
 			goto error;
 		}
 
-		ret = pairparsevalue(vp, expanded, -1);
+		ret = fr_pair_value_from_str(vp, expanded, -1);
 		TALLOC_FREE(expanded);
 		if (ret < 0) {
 			RWDEBUG("Incompatible value assignment, skipping");
@@ -1132,7 +1132,7 @@ static int rest_decode_post(UNUSED rlm_rest_t *instance, UNUSED rlm_rest_section
 			goto skip;
 		}
 
-		pairadd(vps, vp);
+		fr_pair_add(vps, vp);
 
 		count++;
 
@@ -1175,7 +1175,7 @@ static int rest_decode_post(UNUSED rlm_rest_t *instance, UNUSED rlm_rest_section
  *	- #VALUE_PAIR just created.
  *	- NULL on error.
  */
-static VALUE_PAIR *json_pairmake_leaf(UNUSED rlm_rest_t *instance, UNUSED rlm_rest_section_t *section,
+static VALUE_PAIR *json_pair_make_leaf(UNUSED rlm_rest_t *instance, UNUSED rlm_rest_section_t *section,
 				      TALLOC_CTX *ctx, REQUEST *request, DICT_ATTR const *da,
 				      json_flags_t *flags, json_object *leaf)
 {
@@ -1185,7 +1185,7 @@ static VALUE_PAIR *json_pairmake_leaf(UNUSED rlm_rest_t *instance, UNUSED rlm_re
 
 	VALUE_PAIR *vp;
 
-	if (json_object_is_type(leaf, json_type_null)) {
+	if (fr_json_object_is_type(leaf, json_type_null)) {
 		RDEBUG3("Got null value for attribute \"%s\", skipping...", da->name);
 
 		return NULL;
@@ -1219,7 +1219,7 @@ static VALUE_PAIR *json_pairmake_leaf(UNUSED rlm_rest_t *instance, UNUSED rlm_re
 		to_parse = value;
 	}
 
-	vp = pairalloc(ctx, da);
+	vp = fr_pair_afrom_da(ctx, da);
 	if (!vp) {
 		RWDEBUG("Failed creating valuepair for attribute \"%s\", skipping...", da->name);
 		talloc_free(expanded);
@@ -1229,7 +1229,7 @@ static VALUE_PAIR *json_pairmake_leaf(UNUSED rlm_rest_t *instance, UNUSED rlm_re
 
 	vp->op = flags->op;
 
-	ret = pairparsevalue(vp, to_parse, -1);
+	ret = fr_pair_value_from_str(vp, to_parse, -1);
 	talloc_free(expanded);
 	if (ret < 0) {
 		RWDEBUG("Incompatible value assignment for attribute \"%s\", skipping...", da->name);
@@ -1280,7 +1280,7 @@ static VALUE_PAIR *json_pairmake_leaf(UNUSED rlm_rest_t *instance, UNUSED rlm_re
  * second and subsequent values in multivalued attributes. This does not work
  * between multiple attribute declarations.
  *
- * @see fr_tokens
+ * @see fr_tokens_table
  *
  * @param[in] instance configuration data.
  * @param[in] section configuration data.
@@ -1293,13 +1293,12 @@ static VALUE_PAIR *json_pairmake_leaf(UNUSED rlm_rest_t *instance, UNUSED rlm_re
  *	- Number of attributes created.
  *	- < 0 on error.
  */
-static int json_pairmake(rlm_rest_t *instance, rlm_rest_section_t *section,
+static int json_pair_make(rlm_rest_t *instance, rlm_rest_section_t *section,
 			 REQUEST *request, json_object *object, UNUSED int level, int max)
 {
-	struct lh_entry *entry;
 	int max_attrs = max;
 
-	if (!json_object_is_type(object, json_type_object)) {
+	if (!fr_json_object_is_type(object, json_type_object)) {
 #ifdef HAVE_JSON_TYPE_TO_NAME
 		REDEBUG("Can't process VP container, expected JSON object"
 			"got \"%s\", skipping...",
@@ -1314,14 +1313,10 @@ static int json_pairmake(rlm_rest_t *instance, rlm_rest_section_t *section,
 	/*
 	 *	Process VP container
 	 */
-	for (entry = json_object_get_object(object)->head;
-	     entry;
-	     entry = entry->next) {
+	json_object_object_foreach(object, name, value) {
 		int i = 0, elements;
-		struct json_object *value, *element, *tmp;
+		struct json_object *element, *tmp;
 		TALLOC_CTX *ctx;
-
-		char const *name = (char const *)entry->k;
 
 		json_flags_t flags = {
 			.op = T_OP_SET,
@@ -1334,9 +1329,6 @@ static int json_pairmake(rlm_rest_t *instance, rlm_rest_section_t *section,
 		VALUE_PAIR **vps, *vp = NULL;
 
 		memset(&dst, 0, sizeof(dst));
-
-		/* Fix the compiler warnings regarding const... */
-		memcpy(&value, &entry->v, sizeof(value));
 
 		/*
 		 *  Resolve attribute name to a dictionary entry and pairlist.
@@ -1376,13 +1368,12 @@ static int json_pairmake(rlm_rest_t *instance, rlm_rest_section_t *section,
 		 *	  - {}	Nested Valuepair
 		 *	  - *	Integer or string value
 		 */
-		if (json_object_is_type(value, json_type_object)) {
+		if (fr_json_object_is_type(value, json_type_object)) {
 			/*
 			 *  Process operator if present.
 			 */
-			tmp = json_object_object_get(value, "op");
-			if (tmp) {
-				flags.op = fr_str2int(fr_tokens, json_object_get_string(tmp), 0);
+			if (json_object_object_get_ex(value, "op", &tmp)) {
+				flags.op = fr_str2int(fr_tokens_table, json_object_get_string(tmp), 0);
 				if (!flags.op) {
 					RWDEBUG("Invalid operator value \"%s\", skipping...",
 						json_object_get_string(tmp));
@@ -1393,33 +1384,30 @@ static int json_pairmake(rlm_rest_t *instance, rlm_rest_section_t *section,
 			/*
 			 *  Process optional do_xlat bool.
 			 */
-			tmp = json_object_object_get(value, "do_xlat");
-			if (tmp) {
+			if (json_object_object_get_ex(value, "do_xlat", &tmp)) {
 				flags.do_xlat = json_object_get_boolean(tmp);
 			}
 
 			/*
 			 *  Process optional is_json bool.
 			 */
-			tmp = json_object_object_get(value, "is_json");
-			if (tmp) {
+			if (json_object_object_get_ex(value, "is_json", &tmp)) {
 				flags.is_json = json_object_get_boolean(tmp);
 			}
 
 			/*
 			 *  Value key must be present if were using the expanded syntax.
 			 */
-			value = json_object_object_get(value, "value");
-			if (!value) {
+			if (!json_object_object_get_ex(value, "value", &tmp)) {
 				RWDEBUG("Value key missing, skipping...");
 				continue;
 			}
 		}
 
 		/*
-		 *  Setup pairmake / recursion loop.
+		 *  Setup fr_pair_make / recursion loop.
 		 */
-		if (!flags.is_json && json_object_is_type(value, json_type_array)) {
+		if (!flags.is_json && fr_json_object_is_type(value, json_type_array)) {
 			elements = json_object_array_length(value);
 			if (!elements) {
 				RWDEBUG("Zero length value array, skipping...");
@@ -1448,18 +1436,18 @@ static int json_pairmake(rlm_rest_t *instance, rlm_rest_section_t *section,
 				flags.op = T_OP_ADD;
 			}
 
-			if (json_object_is_type(element, json_type_object) && !flags.is_json) {
+			if (fr_json_object_is_type(element, json_type_object) && !flags.is_json) {
 				/* TODO: Insert nested VP into VP structure...*/
 				RWDEBUG("Found nested VP, these are not yet supported, skipping...");
 
 				continue;
 
 				/*
-				vp = json_pairmake(instance, section,
+				vp = json_pair_make(instance, section,
 						   request, value,
 						   level + 1, max_attrs);*/
 			} else {
-				vp = json_pairmake_leaf(instance, section, ctx, request,
+				vp = json_pair_make_leaf(instance, section, ctx, request,
 							dst.tmpl_da, &flags, element);
 				if (!vp) continue;
 			}
@@ -1478,12 +1466,12 @@ static int json_pairmake(rlm_rest_t *instance, rlm_rest_section_t *section,
 /** Converts JSON response into VALUE_PAIRs and adds them to the request.
  *
  * Converts the raw JSON string into a json-c object tree and passes it to
- * json_pairmake. After the tree has been parsed json_object_put is called
+ * json_pair_make. After the tree has been parsed json_object_put is called
  * which decrements the reference count of the root node by one, and frees
  * the entire tree.
  *
  * @see rest_encode_json
- * @see json_pairmake
+ * @see json_pair_make
  *
  * @param[in] instance configuration data.
  * @param[in] section configuration data.
@@ -1516,7 +1504,7 @@ static int rest_decode_json(rlm_rest_t *instance, rlm_rest_section_t *section,
 		return -1;
 	}
 
-	ret = json_pairmake(instance, section, request, json, 0, REST_BODY_MAX_ATTRS);
+	ret = json_pair_make(instance, section, request, json, 0, REST_BODY_MAX_ATTRS);
 
 	/*
 	 *  Decrement reference count for root object, should free entire JSON tree.
@@ -1725,7 +1713,7 @@ malformed:
 	{
 		char escaped[1024];
 
-		fr_prints(escaped, sizeof(escaped), (char *) in, t, '\0');
+		fr_snprint(escaped, sizeof(escaped), (char *) in, t, '\0');
 
 		REDEBUG("Received %zu bytes of response data: %s", t, escaped);
 		ctx->code = -1;
@@ -1980,6 +1968,7 @@ int rest_request_config(rlm_rest_t *instance, rlm_rest_section_t *section,
 	rlm_rest_handle_t	*randle	= handle;
 	rlm_rest_curl_context_t	*ctx = randle->ctx;
 	CURL			*candle = randle->handle;
+	struct timeval		timeout;
 
 	http_auth_type_t	auth = section->auth;
 
@@ -2009,7 +1998,8 @@ int rest_request_config(rlm_rest_t *instance, rlm_rest_section_t *section,
 	ctx->headers = curl_slist_append(ctx->headers, buffer);
 	if (!ctx->headers) goto error_header;
 
-	SET_OPTION(CURLOPT_CONNECTTIMEOUT_MS, instance->connect_timeout);
+	timeout = fr_connection_pool_timeout(instance->pool);
+	SET_OPTION(CURLOPT_CONNECTTIMEOUT_MS, FR_TIMEVAL_TO_MS(&timeout));
 	SET_OPTION(CURLOPT_TIMEOUT_MS, section->timeout);
 
 #ifdef CURLOPT_PROTOCOLS

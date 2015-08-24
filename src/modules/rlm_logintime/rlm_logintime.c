@@ -53,9 +53,8 @@ typedef struct rlm_logintime_t {
  *	buffer over-flows.
  */
 static const CONF_PARSER module_config[] = {
-  { "minimum_timeout", FR_CONF_OFFSET(PW_TYPE_INTEGER, rlm_logintime_t, min_time), "60" },
-
-  { NULL, -1, 0, NULL, NULL }
+  { FR_CONF_OFFSET("minimum_timeout", PW_TYPE_INTEGER, rlm_logintime_t, min_time), .dflt = "60" },
+	CONF_PARSER_TERMINATOR
 };
 
 
@@ -149,7 +148,7 @@ static rlm_rcode_t CC_HINT(nonnull) mod_authorize(void *instance, REQUEST *reque
 	VALUE_PAIR *ends, *timeout;
 	int left;
 
-	ends = pairfind(request->config, PW_LOGIN_TIME, 0, TAG_ANY);
+	ends = fr_pair_find_by_num(request->config, PW_LOGIN_TIME, 0, TAG_ANY);
 	if (!ends) {
 		return RLM_MODULE_NOOP;
 	}
@@ -193,13 +192,13 @@ static rlm_rcode_t CC_HINT(nonnull) mod_authorize(void *instance, REQUEST *reque
 	 */
 	RDEBUG("Login within allowed time-slot, %d seconds left in this session", left);
 
-	timeout = pairfind(request->reply->vps, PW_SESSION_TIMEOUT, 0, TAG_ANY);
+	timeout = fr_pair_find_by_num(request->reply->vps, PW_SESSION_TIMEOUT, 0, TAG_ANY);
 	if (timeout) {	/* just update... */
 		if (timeout->vp_integer > (unsigned int) left) {
 			timeout->vp_integer = left;
 		}
 	} else {
-		timeout = radius_paircreate(request->reply, &request->reply->vps, PW_SESSION_TIMEOUT, 0);
+		timeout = radius_pair_create(request->reply, &request->reply->vps, PW_SESSION_TIMEOUT, 0);
 		timeout->vp_integer = left;
 	}
 

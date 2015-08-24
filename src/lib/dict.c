@@ -625,7 +625,7 @@ int dict_valid_name(char const *name)
 		if (!dict_attr_allowed_chars[*p]) {
 			char buff[5];
 
-			fr_prints(buff, sizeof(buff), (char const *)p, 1, '\'');
+			fr_snprint(buff, sizeof(buff), (char const *)p, 1, '\'');
 			fr_strerror_printf("Invalid character '%s' in attribute", buff);
 
 			return -(p - (uint8_t const *)name);
@@ -1939,12 +1939,8 @@ static int process_vendor(char const* fn, int const line, char **argv,
 
 	/* Create a new VENDOR entry for the list */
 	if (dict_addvendor(argv[0], value) < 0) {
-		char buffer[256];
-
-		strlcpy(buffer, fr_strerror(), sizeof(buffer));
-
 		fr_strerror_printf("dict_init: %s[%d]: %s",
-			   fn, line, buffer);
+			   fn, line, fr_strerror());
 		return -1;
 	}
 

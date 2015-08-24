@@ -39,9 +39,8 @@ typedef struct rlm_cache_memcached {
 } rlm_cache_memcached_t;
 
 static const CONF_PARSER driver_config[] = {
-	{ "options", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_REQUIRED, rlm_cache_memcached_t, options), "--SERVER=localhost" },
-
-	{NULL, -1, 0, NULL, NULL}
+	{ FR_CONF_OFFSET("options", PW_TYPE_STRING | PW_TYPE_REQUIRED, rlm_cache_memcached_t, options), .dflt = "--SERVER=localhost" },
+	CONF_PARSER_TERMINATOR
 };
 
 /** Free a connection handle
@@ -58,7 +57,7 @@ static int _mod_conn_free(rlm_cache_memcached_handle_t *mandle)
 /** Create a new memcached handle
  *
  */
-static void *mod_conn_create(TALLOC_CTX *ctx, void *instance)
+static void *mod_conn_create(TALLOC_CTX *ctx, void *instance, struct timeval const *timeout)
 {
 	rlm_cache_memcached_t		*driver = instance;
 	rlm_cache_memcached_handle_t	*mandle;
@@ -73,12 +72,20 @@ static void *mod_conn_create(TALLOC_CTX *ctx, void *instance)
 		return NULL;
 	}
 
+	ret = memcached_behavior_set(sandle, MEMCACHED_BEHAVIOR_CONNECT_TIMEOUT, (uint64_t)FR_TIMEVAL_TO_MS(timeout));
+	if (ret != MEMCACHED_SUCCESS) {
+		ERROR("rlm_cache_memcached: Failed setting connection timeout: %s: %s", memcached_strerror(sandle, ret),
+		      memcached_last_error_message(sandle));
+	error:
+		memcached_free(sandle);
+		return NULL;
+	}
+
 	ret = memcached_version(sandle);
 	if (ret != MEMCACHED_SUCCESS) {
 		ERROR("rlm_cache_memcached: Failed getting server info: %s: %s", memcached_strerror(sandle, ret),
 		      memcached_last_error_message(sandle));
-		memcached_free(sandle);
-		return NULL;
+		goto error;
 	}
 
 	mandle = talloc_zero(ctx, rlm_cache_memcached_handle_t);

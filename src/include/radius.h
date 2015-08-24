@@ -5,6 +5,9 @@
  *
  */
 
+/** Internal data types used within libfreeradius
+ *
+ */
 typedef enum {
 	PW_TYPE_INVALID = 0,			//!< Invalid (uninitialised) attribute type.
 	PW_TYPE_STRING,				//!< String of printable characters.
@@ -31,9 +34,37 @@ typedef enum {
 	PW_TYPE_TIMEVAL,			//!< Time value (struct timeval), only for config items.
 	PW_TYPE_BOOLEAN,			//!< A truth value.
 	PW_TYPE_COMBO_IP_PREFIX,		//!< WiMAX IPv4 or IPv6 address prefix depending on length.
+	PW_TYPE_DECIMAL,			//!< Double precision floating point.
 	PW_TYPE_MAX				//!< Number of defined data types.
 } PW_TYPE;
 
+#define PW_TYPE_BAD \
+	     PW_TYPE_MAX: \
+	case PW_TYPE_INVALID
+
+/** Stupid hack for things which produce special error messages for VSAs
+ *
+ * @note This should be used for switch statements in printing and casting
+ *	functions that need to deal with all types representing values
+ */
+#define PW_TYPE_STRUCTURAL_EXCEPT_VSA \
+	     PW_TYPE_EXTENDED: \
+	case PW_TYPE_LONG_EXTENDED: \
+	case PW_TYPE_EVS: \
+	case PW_TYPE_TLV
+
+/** Match all non value types in case statements
+ *
+ * @note This should be used for switch statements in printing and casting
+ *	functions that need to deal with all types representing values
+ */
+#define PW_TYPE_STRUCTURAL \
+	PW_TYPE_STRUCTURAL_EXCEPT_VSA: \
+     	case PW_TYPE_VSA
+
+/** RADIUS packet codes
+ *
+ */
 typedef enum {
 	PW_CODE_UNDEFINED		= 0,	//!< Packet code has not been set
 	PW_CODE_ACCESS_REQUEST		= 1,	//!< RFC2865 - Access-Request
@@ -124,6 +155,7 @@ typedef enum {
 #define PW_NAS_PROMPT_USER		7
 #define PW_AUTHENTICATE_ONLY		8
 #define PW_CALLBACK_NAS_PROMPT		9
+#define PW_AUTHORIZE_ONLY		17
 
 /*	Framed Protocols	*/
 

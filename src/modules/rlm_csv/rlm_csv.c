@@ -66,12 +66,11 @@ typedef struct rlm_csv_entry_t {
  *	A mapping of configuration file names to internal variables.
  */
 static const CONF_PARSER module_config[] = {
-	{ "filename", FR_CONF_OFFSET(PW_TYPE_FILE_INPUT | PW_TYPE_REQUIRED | PW_TYPE_NOT_EMPTY, rlm_csv_t, filename), NULL },
-	{ "delimiter", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_REQUIRED | PW_TYPE_NOT_EMPTY, rlm_csv_t, delimiter), "," },
-	{ "header", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_REQUIRED | PW_TYPE_NOT_EMPTY, rlm_csv_t, header), NULL },
-	{ "key_field", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_REQUIRED | PW_TYPE_NOT_EMPTY, rlm_csv_t, key), NULL },
-
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	{ FR_CONF_OFFSET("filename", PW_TYPE_FILE_INPUT | PW_TYPE_REQUIRED | PW_TYPE_NOT_EMPTY, rlm_csv_t, filename) },
+	{ FR_CONF_OFFSET("delimiter", PW_TYPE_STRING | PW_TYPE_REQUIRED | PW_TYPE_NOT_EMPTY, rlm_csv_t, delimiter), .dflt = "," },
+	{ FR_CONF_OFFSET("header", PW_TYPE_STRING | PW_TYPE_REQUIRED | PW_TYPE_NOT_EMPTY, rlm_csv_t, header) },
+	{ FR_CONF_OFFSET("key_field", PW_TYPE_STRING | PW_TYPE_REQUIRED | PW_TYPE_NOT_EMPTY, rlm_csv_t, key) },
+	CONF_PARSER_TERMINATOR
 };
 
 static int csv_entry_cmp(void const *one, void const *two)
@@ -246,7 +245,7 @@ static int csv_map_verify(UNUSED void *proc_inst, void *mod_inst, UNUSED vp_tmpl
 	for (map = maps;
 	     map != NULL;
 	     map = map->next) {
-		if (map->rhs->type != TMPL_TYPE_LITERAL) continue;
+		if (map->rhs->type != TMPL_TYPE_UNPARSED) continue;
 
 		if (fieldname2offset(inst, map->rhs->name) < 0) {
 			cf_log_err(map->ci, "Unknown field '%s'", map->rhs->name);
@@ -437,13 +436,13 @@ static int csv_map_getvalue(TALLOC_CTX *ctx, VALUE_PAIR **out, REQUEST *request,
 		talloc_free(attr);
 	}
 
-	vp = pairalloc(ctx, da);
+	vp = fr_pair_afrom_da(ctx, da);
 	rad_assert(vp);
 
-	if (pairparsevalue(vp, str, talloc_array_length(str) - 1) < 0) {
+	if (fr_pair_value_from_str(vp, str, talloc_array_length(str) - 1) < 0) {
 		char *escaped;
 
-		escaped = fr_aprints(vp, str, talloc_array_length(str) - 1, '\'');
+		escaped = fr_asprint(vp, str, talloc_array_length(str) - 1, '\'');
 		RWDEBUG("Failed parsing value \"%s\" for attribute %s: %s", escaped,
 			map->lhs->tmpl_da->name, fr_strerror());
 
@@ -494,7 +493,7 @@ static rlm_rcode_t mod_map_proc(void *mod_inst, UNUSED void *proc_inst, REQUEST 
 		/*
 		 *	Avoid memory allocations if possible.
 		 */
-		if (map->rhs->type != TMPL_TYPE_LITERAL) {
+		if (map->rhs->type != TMPL_TYPE_UNPARSED) {
 			if (tmpl_aexpand(request, &field_name, request, map->rhs, NULL, NULL) < 0) {
 				RDEBUG("Failed expanding RHS at %s", map->lhs->name);
 				return RLM_MODULE_FAIL;

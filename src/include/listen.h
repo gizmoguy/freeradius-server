@@ -15,6 +15,9 @@
  */
 #ifndef LISTEN_H
 #define LISTEN_H
+
+#include <freeradius-devel/pcap.h>
+
 /**
  * $Id$
  *
@@ -96,6 +99,10 @@ struct rad_listen {
 #endif
 };
 
+#ifdef HAVE_LIBPCAP
+typedef const char* (*rad_pcap_filter_builder)(rad_listen_t *);
+#endif
+
 /*
  *	This shouldn't really be exposed...
  */
@@ -107,9 +114,14 @@ typedef struct listen_socket_t {
 	uint16_t	my_port;
 
 	char const	*interface;
-#ifdef SO_BROADCAST
-	int		broadcast;
+
+#ifdef HAVE_LIBPCAP	
+	fr_pcap_t	*pcap;
+	fr_pcap_type_t pcap_type;
+	rad_pcap_filter_builder pcap_filter_builder;
 #endif
+
+	int		broadcast;
 	time_t		rate_time;
 	uint32_t	rate_pps_old;
 	uint32_t	rate_pps_now;
@@ -140,7 +152,9 @@ typedef struct listen_socket_t {
 	tls_session_t	*ssn;
 	REQUEST		*request; /* horrible hacks */
 	VALUE_PAIR	*certs;
+#ifdef HAVE_PTHREAD_H
 	pthread_mutex_t mutex;
+#endif
 	uint8_t		*data;
 	size_t		partial;
 #endif
@@ -148,4 +162,3 @@ typedef struct listen_socket_t {
 	RADCLIENT_LIST	*clients;
 } listen_socket_t;
 #endif /* LISTEN_H */
-

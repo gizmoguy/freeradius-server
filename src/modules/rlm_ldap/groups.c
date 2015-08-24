@@ -322,8 +322,8 @@ rlm_rcode_t rlm_ldap_cacheable_userobj(rlm_ldap_t const *inst, REQUEST *request,
 			 *	The easy case, we're caching DNs and we got a DN.
 			 */
 			if (is_dn) {
-				MEM(vp = pairalloc(list_ctx, inst->cache_da));
-				pairbstrncpy(vp, values[i]->bv_val, values[i]->bv_len);
+				MEM(vp = fr_pair_afrom_da(list_ctx, inst->cache_da));
+				fr_pair_value_bstrncpy(vp, values[i]->bv_val, values[i]->bv_len);
 				fr_cursor_insert(&groups_cursor, vp);
 			/*
 			 *	We were told to cache DNs but we got a name, we now need to resolve
@@ -339,8 +339,8 @@ rlm_rcode_t rlm_ldap_cacheable_userobj(rlm_ldap_t const *inst, REQUEST *request,
 			 *	The easy case, we're caching names and we got a name.
 			 */
 			if (!is_dn) {
-				MEM(vp = pairalloc(list_ctx, inst->cache_da));
-				pairbstrncpy(vp, values[i]->bv_val, values[i]->bv_len);
+				MEM(vp = fr_pair_afrom_da(list_ctx, inst->cache_da));
+				fr_pair_value_bstrncpy(vp, values[i]->bv_val, values[i]->bv_len);
 				fr_cursor_insert(&groups_cursor, vp);
 			/*
 			 *	We were told to cache names but we got a DN, we now need to resolve
@@ -357,13 +357,13 @@ rlm_rcode_t rlm_ldap_cacheable_userobj(rlm_ldap_t const *inst, REQUEST *request,
 				if (rcode != RLM_MODULE_OK) {
 					ldap_value_free_len(values);
 					talloc_free(value_ctx);
-					pairfree(&groups);
+					fr_pair_list_free(&groups);
 
 					return rcode;
 				}
 
-				MEM(vp = pairalloc(list_ctx, inst->cache_da));
-				pairbstrncpy(vp, name, talloc_array_length(name) - 1);
+				MEM(vp = fr_pair_afrom_da(list_ctx, inst->cache_da));
+				fr_pair_value_bstrncpy(vp, name, talloc_array_length(name) - 1);
 				fr_cursor_insert(&groups_cursor, vp);
 				talloc_free(name);
 			}
@@ -380,7 +380,7 @@ rlm_rcode_t rlm_ldap_cacheable_userobj(rlm_ldap_t const *inst, REQUEST *request,
 
 	fr_cursor_init(&list_cursor, list);
 
-	RDEBUG("Adding cacheable group memberships");
+	RDEBUG("Adding cacheable user object memberships");
 	RINDENT();
 	if (RDEBUG_ENABLED) {
 		for (vp = fr_cursor_first(&groups_cursor);
@@ -393,8 +393,8 @@ rlm_rcode_t rlm_ldap_cacheable_userobj(rlm_ldap_t const *inst, REQUEST *request,
 	fr_cursor_merge(&list_cursor, groups);
 
 	for (dn_p = group_dn; *dn_p; dn_p++) {
-		MEM(vp = pairalloc(list_ctx, inst->cache_da));
-		pairstrcpy(vp, *dn_p);
+		MEM(vp = fr_pair_afrom_da(list_ctx, inst->cache_da));
+		fr_pair_value_strcpy(vp, *dn_p);
 		fr_cursor_insert(&list_cursor, vp);
 
 		RDEBUG("&control:%s += \"%s\"", inst->cache_da->name, vp->vp_strvalue);
@@ -474,6 +474,7 @@ rlm_rcode_t rlm_ldap_cacheable_groupobj(rlm_ldap_t const *inst, REQUEST *request
 		goto finish;
 	}
 
+	RDEBUG("Adding cacheable group object memberships");
 	do {
 		if (inst->cacheable_group_dn) {
 			dn = ldap_get_dn((*pconn)->handle, entry);
@@ -485,10 +486,12 @@ rlm_rcode_t rlm_ldap_cacheable_groupobj(rlm_ldap_t const *inst, REQUEST *request
 			}
 			rlm_ldap_normalise_dn(dn, dn);
 
-			MEM(vp = pairmake_config(inst->cache_da->name, NULL, T_OP_ADD));
-			pairstrcpy(vp, dn);
+			MEM(vp = pair_make_config(inst->cache_da->name, NULL, T_OP_ADD));
+			fr_pair_value_strcpy(vp, dn);
 
-			RDEBUG("Added control:%s with value \"%s\"", inst->cache_da->name, dn);
+			RINDENT();
+			RDEBUG("&control:%s += \"%s\"", inst->cache_da->name, dn);
+			REXDENT();
 			ldap_memfree(dn);
 		}
 
@@ -498,11 +501,13 @@ rlm_rcode_t rlm_ldap_cacheable_groupobj(rlm_ldap_t const *inst, REQUEST *request
 			values = ldap_get_values_len((*pconn)->handle, entry, inst->groupobj_name_attr);
 			if (!values) continue;
 
-			MEM(vp = pairmake_config(inst->cache_da->name, NULL, T_OP_ADD));
-			pairbstrncpy(vp, values[0]->bv_val, values[0]->bv_len);
+			MEM(vp = pair_make_config(inst->cache_da->name, NULL, T_OP_ADD));
+			fr_pair_value_bstrncpy(vp, values[0]->bv_val, values[0]->bv_len);
 
-			RDEBUG("Added control:%s with value \"%.*s\"", inst->cache_da->name,
+			RINDENT();
+			RDEBUG("&control:%s += \"%.*s\"", inst->cache_da->name,
 			       (int)values[0]->bv_len, values[0]->bv_val);
+			REXDENT();
 
 			ldap_value_free_len(values);
 		}
@@ -545,7 +550,7 @@ rlm_rcode_t rlm_ldap_check_groupobj_dynamic(rlm_ldap_t const *inst, REQUEST *req
 
 	default:
 		REDEBUG("Operator \"%s\" not allowed for LDAP group comparisons",
-			fr_int2str(fr_tokens, check->op, "<INVALID>"));
+			fr_int2str(fr_tokens_table, check->op, "<INVALID>"));
 		return 1;
 	}
 
@@ -821,7 +826,7 @@ rlm_rcode_t rlm_ldap_check_cached(rlm_ldap_t const *inst, REQUEST *request, VALU
 	fr_cursor_first(&cursor);
 
 	while ((vp = fr_cursor_next_by_num(&cursor, inst->cache_da->attr, inst->cache_da->vendor, TAG_ANY))) {
-		ret = paircmp_op(T_OP_CMP_EQ, vp, check);
+		ret = fr_pair_cmp_op(T_OP_CMP_EQ, vp, check);
 		if (ret == 1) {
 			RDEBUG2("User found. Matched cached membership");
 			return RLM_MODULE_OK;

@@ -41,14 +41,14 @@ typedef struct rlm_eap_gtc_t {
 } rlm_eap_gtc_t;
 
 static CONF_PARSER module_config[] = {
-	{ "challenge", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_eap_gtc_t, challenge), "Password: " },
+	{ FR_CONF_OFFSET("challenge", PW_TYPE_STRING, rlm_eap_gtc_t, challenge), .dflt = "Password: " },
 
-	{ "auth_type", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_eap_gtc_t, auth_type_name), "PAP" },
-
-	{ NULL, -1, 0, NULL, NULL }	   /* end the list */
+	{ FR_CONF_OFFSET("auth_type", PW_TYPE_STRING, rlm_eap_gtc_t, auth_type_name), .dflt = "PAP" },
+	CONF_PARSER_TERMINATOR
 };
 
 
+static int CC_HINT(nonnull) mod_process(void *instance, eap_handler_t *handler);
 
 /*
  *	Attach the module.
@@ -120,7 +120,7 @@ static int mod_session_init(void *instance, eap_handler_t *handler)
 	 *	stored in 'handler->eap_ds', which will be given back
 	 *	to us...
 	 */
-	handler->stage = PROCESS;
+	handler->process = mod_process;
 
 	return 1;
 }
@@ -129,7 +129,7 @@ static int mod_session_init(void *instance, eap_handler_t *handler)
 /*
  *	Authenticate a previously sent challenge.
  */
-static int CC_HINT(nonnull) mod_process(void *instance, eap_handler_t *handler)
+static int mod_process(void *instance, eap_handler_t *handler)
 {
 	VALUE_PAIR *vp;
 	EAP_DS *eap_ds = handler->eap_ds;
@@ -139,7 +139,6 @@ static int CC_HINT(nonnull) mod_process(void *instance, eap_handler_t *handler)
 	/*
 	 *	Get the Cleartext-Password for this user.
 	 */
-	rad_assert(handler->stage == PROCESS);
 
 	/*
 	 *	Sanity check the response.  We need at least one byte
@@ -172,7 +171,7 @@ static int CC_HINT(nonnull) mod_process(void *instance, eap_handler_t *handler)
 		/*
 		 *	For now, do cleartext password authentication.
 		 */
-		vp = pairfind(request->config, PW_CLEARTEXT_PASSWORD, 0, TAG_ANY);
+		vp = fr_pair_find_by_num(request->config, PW_CLEARTEXT_PASSWORD, 0, TAG_ANY);
 		if (!vp) {
 			REDEBUG2("Cleartext-Password is required for authentication");
 			eap_ds->request->code = PW_EAP_FAILURE;
@@ -204,9 +203,9 @@ static int CC_HINT(nonnull) mod_process(void *instance, eap_handler_t *handler)
 		 *	If there was a User-Password in the request,
 		 *	why the heck are they using EAP-GTC?
 		 */
-		pairdelete(&request->packet->vps, PW_USER_PASSWORD, 0, TAG_ANY);
+		fr_pair_delete_by_num(&request->packet->vps, PW_USER_PASSWORD, 0, TAG_ANY);
 
-		vp = pairmake_packet("User-Password", NULL, T_OP_EQ);
+		vp = pair_make_request("User-Password", NULL, T_OP_EQ);
 		if (!vp) {
 			return 0;
 		}

@@ -38,7 +38,7 @@ typedef struct rlm_soh_t {
 /*
  * Not sure how to make this useful yet...
  */
-static ssize_t soh_xlat(UNUSED void *instance, REQUEST *request, char const *fmt, char *out, size_t outlen) {
+static ssize_t soh_xlat(UNUSED void *instance, REQUEST *request, char const *fmt, char **out, size_t outlen) {
 
 	VALUE_PAIR* vp[6];
 	char const *osname;
@@ -46,23 +46,23 @@ static ssize_t soh_xlat(UNUSED void *instance, REQUEST *request, char const *fmt
 	/*
 	 * There will be no point unless SoH-Supported = yes
 	 */
-	vp[0] = pairfind(request->packet->vps, PW_SOH_SUPPORTED, 0, TAG_ANY);
+	vp[0] = fr_pair_find_by_num(request->packet->vps, PW_SOH_SUPPORTED, 0, TAG_ANY);
 	if (!vp[0])
 		return 0;
 
 
 	if (strncasecmp(fmt, "OS", 2) == 0) {
 		/* OS vendor */
-		vp[0] = pairfind(request->packet->vps, PW_SOH_MS_MACHINE_OS_VENDOR,  0, TAG_ANY);
-		vp[1] = pairfind(request->packet->vps, PW_SOH_MS_MACHINE_OS_VERSION, 0, TAG_ANY);
-		vp[2] = pairfind(request->packet->vps, PW_SOH_MS_MACHINE_OS_RELEASE, 0, TAG_ANY);
-		vp[3] = pairfind(request->packet->vps, PW_SOH_MS_MACHINE_OS_BUILD,   0, TAG_ANY);
-		vp[4] = pairfind(request->packet->vps, PW_SOH_MS_MACHINE_SP_VERSION, 0, TAG_ANY);
-		vp[5] = pairfind(request->packet->vps, PW_SOH_MS_MACHINE_SP_RELEASE, 0, TAG_ANY);
+		vp[0] = fr_pair_find_by_num(request->packet->vps, PW_SOH_MS_MACHINE_OS_VENDOR,  0, TAG_ANY);
+		vp[1] = fr_pair_find_by_num(request->packet->vps, PW_SOH_MS_MACHINE_OS_VERSION, 0, TAG_ANY);
+		vp[2] = fr_pair_find_by_num(request->packet->vps, PW_SOH_MS_MACHINE_OS_RELEASE, 0, TAG_ANY);
+		vp[3] = fr_pair_find_by_num(request->packet->vps, PW_SOH_MS_MACHINE_OS_BUILD,   0, TAG_ANY);
+		vp[4] = fr_pair_find_by_num(request->packet->vps, PW_SOH_MS_MACHINE_SP_VERSION, 0, TAG_ANY);
+		vp[5] = fr_pair_find_by_num(request->packet->vps, PW_SOH_MS_MACHINE_SP_RELEASE, 0, TAG_ANY);
 
 		if (vp[0] && vp[0]->vp_integer == VENDORPEC_MICROSOFT) {
 			if (!vp[1]) {
-				snprintf(out, outlen, "Windows unknown");
+				snprintf(*out, outlen, "Windows unknown");
 			} else {
 				switch (vp[1]->vp_integer) {
 				case 7:
@@ -81,14 +81,13 @@ static ssize_t soh_xlat(UNUSED void *instance, REQUEST *request, char const *fmt
 					osname = "Other";
 					break;
 				}
-				snprintf(out, outlen, "Windows %s %d.%d.%d sp %d.%d", osname, vp[1]->vp_integer,
-						vp[2] ? vp[2]->vp_integer : 0,
-						vp[3] ? vp[3]->vp_integer : 0,
-						vp[4] ? vp[4]->vp_integer : 0,
-						vp[5] ? vp[5]->vp_integer : 0
-					);
+				snprintf(*out, outlen, "Windows %s %d.%d.%d sp %d.%d", osname, vp[1]->vp_integer,
+					 vp[2] ? vp[2]->vp_integer : 0,
+					 vp[3] ? vp[3]->vp_integer : 0,
+					 vp[4] ? vp[4]->vp_integer : 0,
+					 vp[5] ? vp[5]->vp_integer : 0);
 			}
-			return strlen(out);
+			return strlen(*out);
 		}
 	}
 
@@ -100,9 +99,8 @@ static const CONF_PARSER module_config[] = {
 	/*
 	 * Do SoH over DHCP?
 	 */
-	{ "dhcp", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_soh_t, dhcp), "no" },
-
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	{ FR_CONF_OFFSET("dhcp", PW_TYPE_BOOLEAN, rlm_soh_t, dhcp), .dflt = "no" },
+	CONF_PARSER_TERMINATOR
 };
 
 
@@ -116,7 +114,7 @@ static int mod_bootstrap(CONF_SECTION *conf, void *instance)
 	inst->xlat_name = name;
 	if (!inst->xlat_name) return -1;
 
-	xlat_register(inst->xlat_name, soh_xlat, NULL, inst);
+	xlat_register(inst->xlat_name, soh_xlat, XLAT_DEFAULT_BUF_LEN, NULL, inst);
 
 	return 0;
 }
@@ -130,7 +128,7 @@ static rlm_rcode_t CC_HINT(nonnull) mod_post_auth(void *instance, REQUEST *reque
 
 	if (!inst->dhcp) return RLM_MODULE_NOOP;
 
-	vp = pairfind(request->packet->vps, 43, DHCP_MAGIC_VENDOR, TAG_ANY);
+	vp = fr_pair_find_by_num(request->packet->vps, 43, DHCP_MAGIC_VENDOR, TAG_ANY);
 	if (vp) {
 		/*
 		 * vendor-specific options contain
@@ -154,7 +152,7 @@ static rlm_rcode_t CC_HINT(nonnull) mod_post_auth(void *instance, REQUEST *reque
 
 					RDEBUG("SoH adding NAP marker to DHCP reply");
 					/* client probe; send "NAP" in the reply */
-					vp = paircreate(request->reply, 43, DHCP_MAGIC_VENDOR);
+					vp = fr_pair_afrom_num(request->reply, 43, DHCP_MAGIC_VENDOR);
 					vp->vp_length = 5;
 					vp->vp_octets = p = talloc_array(vp, uint8_t, vp->vp_length);
 
@@ -164,7 +162,7 @@ static rlm_rcode_t CC_HINT(nonnull) mod_post_auth(void *instance, REQUEST *reque
 					p[3] = 'A';
 					p[2] = 'P';
 
-					pairadd(&request->reply->vps, vp);
+					fr_pair_add(&request->reply->vps, vp);
 
 				} else {
 					RDEBUG("SoH decoding NAP from DHCP request");
@@ -194,7 +192,7 @@ static rlm_rcode_t CC_HINT(nonnull) mod_authorize(UNUSED void * instance, REQUES
 	int rv;
 
 	/* try to find the MS-SoH payload */
-	vp = pairfind(request->packet->vps, 55, VENDORPEC_MICROSOFT, TAG_ANY);
+	vp = fr_pair_find_by_num(request->packet->vps, 55, VENDORPEC_MICROSOFT, TAG_ANY);
 	if (!vp) {
 		RDEBUG("SoH radius VP not found");
 		return RLM_MODULE_NOOP;

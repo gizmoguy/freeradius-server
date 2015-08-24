@@ -88,10 +88,10 @@ typedef struct rlm_perl_t {
  *	A mapping of configuration file names to internal variables.
  */
 #define RLM_PERL_CONF(_x) { "func_" STRINGIFY(_x), PW_TYPE_STRING, \
-			offsetof(rlm_perl_t,func_##_x), NULL, STRINGIFY(_x)}
+			offsetof(rlm_perl_t,func_##_x), NULL, STRINGIFY(_x), T_INVALID }
 
 static const CONF_PARSER module_config[] = {
-	{ "filename", FR_CONF_OFFSET(PW_TYPE_FILE_INPUT | PW_TYPE_REQUIRED, rlm_perl_t, module), NULL },
+	{ FR_CONF_OFFSET("filename", PW_TYPE_FILE_INPUT | PW_TYPE_REQUIRED, rlm_perl_t, module) },
 
 	RLM_PERL_CONF(authorize),
 	RLM_PERL_CONF(authenticate),
@@ -110,13 +110,12 @@ static const CONF_PARSER module_config[] = {
 	RLM_PERL_CONF(recv_coa),
 	RLM_PERL_CONF(send_coa),
 #endif
-	{ "perl_flags", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_perl_t, perl_flags), NULL },
+	{ FR_CONF_OFFSET("perl_flags", PW_TYPE_STRING, rlm_perl_t, perl_flags) },
 
-	{ "func_start_accounting", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_perl_t, func_start_accounting), NULL },
+	{ FR_CONF_OFFSET("func_start_accounting", PW_TYPE_STRING, rlm_perl_t, func_start_accounting) },
 
-	{ "func_stop_accounting", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_perl_t, func_stop_accounting), NULL },
-
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	{ FR_CONF_OFFSET("func_stop_accounting", PW_TYPE_STRING, rlm_perl_t, func_stop_accounting) },
+	CONF_PARSER_TERMINATOR
 };
 
 /*
@@ -308,7 +307,7 @@ static void xs_init(pTHX)
 /*
  *	The xlat function
  */
-static ssize_t perl_xlat(void *instance, REQUEST *request, char const *fmt, char *out, size_t freespace)
+static ssize_t perl_xlat(void *instance, REQUEST *request, char const *fmt, char **out, size_t freespace)
 {
 
 	rlm_perl_t	*inst = (rlm_perl_t *) instance;
@@ -373,10 +372,10 @@ static ssize_t perl_xlat(void *instance, REQUEST *request, char const *fmt, char
 			(void)POPs;
 		} else if (count > 0) {
 			tmp = POPp;
-			strlcpy(out, tmp, freespace);
-			ret = strlen(out);
+			strlcpy(*out, tmp, freespace);
+			ret = strlen(*out);
 
-			RDEBUG("Len is %zu , out is %s freespace is %zu", ret, out, freespace);
+			RDEBUG("Len is %zu , out is %s freespace is %zu", ret, *out, freespace);
 		}
 
 		PUTBACK ;
@@ -462,7 +461,7 @@ static int mod_bootstrap(CONF_SECTION *conf, void *instance)
 	xlat_name = cf_section_name2(conf);
 	if (!xlat_name) xlat_name = cf_section_name1(conf);
 
-	xlat_register(xlat_name, perl_xlat, NULL, inst);
+	xlat_register(xlat_name, perl_xlat, XLAT_DEFAULT_BUF_LEN, NULL, inst);
 
 	return 0;
 }
@@ -603,7 +602,7 @@ static void perl_vp_to_svpvn_element(REQUEST *request, AV *av, VALUE_PAIR const 
 		break;
 
 	default:
-		len = vp_prints_value(buffer, sizeof(buffer), vp, 0);
+		len = fr_pair_value_snprint(buffer, sizeof(buffer), vp, 0);
 		RDEBUG("$%s{'%s'}[%i] = &%s:%s -> '%s'", hash_name, vp->da->name, *i,
 		       list_name, vp->da->name, buffer);
 		av_push(av, newSVpvn(buffer, truncate_len(len, sizeof(buffer))));
@@ -628,7 +627,7 @@ static void perl_store_vps(UNUSED TALLOC_CTX *ctx, REQUEST *request, VALUE_PAIR 
 	vp_cursor_t cursor;
 
 	RINDENT();
-	pairsort(vps, attrtagcmp);
+	fr_pair_list_sort(vps, fr_pair_cmp_by_da_tag);
 	for (vp = fr_cursor_init(&cursor, vps);
 	     vp;
 	     vp = fr_cursor_next(&cursor)) {
@@ -695,7 +694,7 @@ static void perl_store_vps(UNUSED TALLOC_CTX *ctx, REQUEST *request, VALUE_PAIR 
 			break;
 
 		default:
-			len = vp_prints_value(buffer, sizeof(buffer), vp, 0);
+			len = fr_pair_value_snprint(buffer, sizeof(buffer), vp, 0);
 			RDEBUG("$%s{'%s'} = &%s:%s -> '%s'", hash_name, vp->da->name,
 			       list_name, vp->da->name, buffer);
 			(void)hv_store(rad_hv, name, strlen(name),
@@ -721,28 +720,28 @@ static int pairadd_sv(TALLOC_CTX *ctx, REQUEST *request, VALUE_PAIR **vps, char 
 	if (SvOK(sv)) {
 		STRLEN len;
 		val = SvPV(sv, len);
-		vp = pairmake(ctx, vps, key, NULL, op);
+		vp = fr_pair_make(ctx, vps, key, NULL, op);
 		if (!vp) {
 		fail:
 			REDEBUG("Failed to create pair %s:%s %s %s", list_name, key,
-				fr_int2str(fr_tokens, op, "<INVALID>"), val);
+				fr_int2str(fr_tokens_table, op, "<INVALID>"), val);
 			return -1;
 		}
 
 		switch (vp->da->type) {
 		case PW_TYPE_STRING:
-			pairbstrncpy(vp, val, len);
+			fr_pair_value_bstrncpy(vp, val, len);
 			break;
 
 		case PW_TYPE_OCTETS:
-			pairmemcpy(vp, (uint8_t const *)val, len);
+			fr_pair_value_memcpy(vp, (uint8_t const *)val, len);
 			break;
 
 		default:
-			if (pairparsevalue(vp, val, len) < 0) goto fail;
+			if (fr_pair_value_from_str(vp, val, len) < 0) goto fail;
 		}
 
-		RDEBUG("&%s:%s %s $%s{'%s'} -> '%s'", list_name, key, fr_int2str(fr_tokens, op, "<INVALID>"),
+		RDEBUG("&%s:%s %s $%s{'%s'} -> '%s'", list_name, key, fr_int2str(fr_tokens_table, op, "<INVALID>"),
 		       hash_name, key, val);
 		return 0;
 	}
@@ -886,27 +885,27 @@ static int do_perl(void *instance, REQUEST *request, char const *function_name)
 
 		vp = NULL;
 		if ((get_hv_content(request->packet, request, rad_request_hv, &vp, "RAD_REQUEST", "request")) == 0) {
-			pairfree(&request->packet->vps);
+			fr_pair_list_free(&request->packet->vps);
 			request->packet->vps = vp;
 			vp = NULL;
 
 			/*
 			 *	Update cached copies
 			 */
-			request->username = pairfind(request->packet->vps, PW_USER_NAME, 0, TAG_ANY);
-			request->password = pairfind(request->packet->vps, PW_USER_PASSWORD, 0, TAG_ANY);
+			request->username = fr_pair_find_by_num(request->packet->vps, PW_USER_NAME, 0, TAG_ANY);
+			request->password = fr_pair_find_by_num(request->packet->vps, PW_USER_PASSWORD, 0, TAG_ANY);
 			if (!request->password)
-				request->password = pairfind(request->packet->vps, PW_CHAP_PASSWORD, 0, TAG_ANY);
+				request->password = fr_pair_find_by_num(request->packet->vps, PW_CHAP_PASSWORD, 0, TAG_ANY);
 		}
 
 		if ((get_hv_content(request->reply, request, rad_reply_hv, &vp, "RAD_REPLY", "reply")) == 0) {
-			pairfree(&request->reply->vps);
+			fr_pair_list_free(&request->reply->vps);
 			request->reply->vps = vp;
 			vp = NULL;
 		}
 
 		if ((get_hv_content(request, request, rad_config_hv, &vp, "RAD_CONFIG", "control")) == 0) {
-			pairfree(&request->config);
+			fr_pair_list_free(&request->config);
 			request->config = vp;
 			vp = NULL;
 		}
@@ -915,7 +914,7 @@ static int do_perl(void *instance, REQUEST *request, char const *function_name)
 		if (request->proxy &&
 		    (get_hv_content(request->proxy, request, rad_request_proxy_hv, &vp,
 		    		    "RAD_REQUEST_PROXY", "proxy-request") == 0)) {
-			pairfree(&request->proxy->vps);
+			fr_pair_list_free(&request->proxy->vps);
 			request->proxy->vps = vp;
 			vp = NULL;
 		}
@@ -923,7 +922,7 @@ static int do_perl(void *instance, REQUEST *request, char const *function_name)
 		if (request->proxy_reply &&
 		    (get_hv_content(request->proxy_reply, request, rad_request_proxy_reply_hv, &vp,
 		    		    "RAD_REQUEST_PROXY_REPLY", "proxy-reply") == 0)) {
-			pairfree(&request->proxy_reply->vps);
+			fr_pair_list_free(&request->proxy_reply->vps);
 			request->proxy_reply->vps = vp;
 			vp = NULL;
 		}
@@ -965,7 +964,7 @@ static rlm_rcode_t CC_HINT(nonnull) mod_accounting(void *instance, REQUEST *requ
 	VALUE_PAIR	*pair;
 	int 		acctstatustype=0;
 
-	if ((pair = pairfind(request->packet->vps, PW_ACCT_STATUS_TYPE, 0, TAG_ANY)) != NULL) {
+	if ((pair = fr_pair_find_by_num(request->packet->vps, PW_ACCT_STATUS_TYPE, 0, TAG_ANY)) != NULL) {
 		acctstatustype = pair->vp_integer;
 	} else {
 		RDEBUG("Invalid Accounting Packet");

@@ -56,15 +56,14 @@ typedef struct rlm_exec_t {
  *	buffer over-flows.
  */
 static const CONF_PARSER module_config[] = {
-	{ "wait", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_exec_t, wait), "yes" },
-	{ "program", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_XLAT, rlm_exec_t, program), NULL },
-	{ "input_pairs", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_exec_t, input), NULL },
-	{ "output_pairs", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_exec_t, output), NULL },
-	{ "packet_type", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_exec_t, packet_type), NULL },
-	{ "shell_escape", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_exec_t, shell_escape), "yes" },
-	{ "timeout", FR_CONF_OFFSET(PW_TYPE_INTEGER, rlm_exec_t, timeout), NULL },
-
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	{ FR_CONF_OFFSET("wait", PW_TYPE_BOOLEAN, rlm_exec_t, wait), .dflt = "yes" },
+	{ FR_CONF_OFFSET("program", PW_TYPE_STRING | PW_TYPE_XLAT, rlm_exec_t, program) },
+	{ FR_CONF_OFFSET("input_pairs", PW_TYPE_STRING, rlm_exec_t, input) },
+	{ FR_CONF_OFFSET("output_pairs", PW_TYPE_STRING, rlm_exec_t, output) },
+	{ FR_CONF_OFFSET("packet_type", PW_TYPE_STRING, rlm_exec_t, packet_type) },
+	{ FR_CONF_OFFSET("shell_escape", PW_TYPE_BOOLEAN, rlm_exec_t, shell_escape), .dflt = "yes" },
+	{ FR_CONF_OFFSET("timeout", PW_TYPE_INTEGER, rlm_exec_t, timeout) },
+	CONF_PARSER_TERMINATOR
 };
 
 static char const special[] = "\\'\"`<>|; \t\r\n()[]?#$^&*=";
@@ -154,7 +153,7 @@ static rlm_rcode_t rlm_exec_status2rcode(REQUEST *request, char *answer, size_t 
 /*
  *	Do xlat of strings.
  */
-static ssize_t exec_xlat(void *instance, REQUEST *request, char const *fmt, char *out, size_t outlen)
+static ssize_t exec_xlat(void *instance, REQUEST *request, char const *fmt, char **out, size_t outlen)
 {
 	int		result;
 	rlm_exec_t	*inst = instance;
@@ -163,7 +162,6 @@ static ssize_t exec_xlat(void *instance, REQUEST *request, char const *fmt, char
 
 	if (!inst->wait) {
 		REDEBUG("'wait' must be enabled to use exec xlat");
-		*out = '\0';
 		return -1;
 	}
 
@@ -171,7 +169,6 @@ static ssize_t exec_xlat(void *instance, REQUEST *request, char const *fmt, char
 		input_pairs = radius_list(request, inst->input_list);
 		if (!input_pairs) {
 			REDEBUG("Failed to find input pairs for xlat");
-			*out = '\0';
 			return -1;
 		}
 	}
@@ -180,18 +177,15 @@ static ssize_t exec_xlat(void *instance, REQUEST *request, char const *fmt, char
 	 *	This function does it's own xlat of the input program
 	 *	to execute.
 	 */
-	result = radius_exec_program(request, out, outlen, NULL, request, fmt,  input_pairs ? *input_pairs : NULL,
+	result = radius_exec_program(request, *out, outlen, NULL, request, fmt,  input_pairs ? *input_pairs : NULL,
 				     inst->wait, inst->shell_escape, inst->timeout);
-	if (result != 0) {
-		out[0] = '\0';
-		return -1;
-	}
+	if (result != 0) return -1;
 
-	for (p = out; *p != '\0'; p++) {
+	for (p = *out; *p != '\0'; p++) {
 		if (*p < ' ') *p = ' ';
 	}
 
-	return strlen(out);
+	return strlen(*out);
 }
 
 /*
@@ -215,7 +209,7 @@ static int mod_bootstrap(CONF_SECTION *conf, void *instance)
 		inst->bare = 1;
 	}
 
-	xlat_register(inst->xlat_name, exec_xlat, rlm_exec_shell_escape, inst);
+	xlat_register(inst->xlat_name, exec_xlat, XLAT_DEFAULT_BUF_LEN, rlm_exec_shell_escape, inst);
 
 	if (inst->input) {
 		p = inst->input;
@@ -351,9 +345,9 @@ static rlm_rcode_t CC_HINT(nonnull) mod_exec_dispatch(void *instance, REQUEST *r
 	 *	If we're not waiting, then there are no output pairs.
 	 */
 	if (inst->output) {
-		pairmove(request, output_pairs, &answer);
+		fr_pair_list_move(request, output_pairs, &answer);
 	}
-	pairfree(&answer);
+	fr_pair_list_free(&answer);
 
 	return rcode;
 }
@@ -374,10 +368,10 @@ static rlm_rcode_t CC_HINT(nonnull) mod_post_auth(void *instance, REQUEST *reque
 	bool		we_wait = false;
 	VALUE_PAIR	*vp, *tmp;
 
-	vp = pairfind(request->reply->vps, PW_EXEC_PROGRAM, 0, TAG_ANY);
+	vp = fr_pair_find_by_num(request->reply->vps, PW_EXEC_PROGRAM, 0, TAG_ANY);
 	if (vp) {
 		we_wait = false;
-	} else if ((vp = pairfind(request->reply->vps, PW_EXEC_PROGRAM_WAIT, 0, TAG_ANY)) != NULL) {
+	} else if ((vp = fr_pair_find_by_num(request->reply->vps, PW_EXEC_PROGRAM_WAIT, 0, TAG_ANY)) != NULL) {
 		we_wait = true;
 	}
 	if (!vp) {
@@ -397,8 +391,8 @@ static rlm_rcode_t CC_HINT(nonnull) mod_post_auth(void *instance, REQUEST *reque
 	/*
 	 *	Always add the value-pairs to the reply.
 	 */
-	pairmove(request->reply, &request->reply->vps, &tmp);
-	pairfree(&tmp);
+	fr_pair_list_move(request->reply, &request->reply->vps, &tmp);
+	fr_pair_list_free(&tmp);
 
 	finish:
 	switch (rcode) {
@@ -437,10 +431,10 @@ static rlm_rcode_t CC_HINT(nonnull) mod_accounting(void *instance, REQUEST *requ
 		return mod_exec_dispatch(instance, request);
 	}
 
-	vp = pairfind(request->reply->vps, PW_EXEC_PROGRAM, 0, TAG_ANY);
+	vp = fr_pair_find_by_num(request->reply->vps, PW_EXEC_PROGRAM, 0, TAG_ANY);
 	if (vp) {
 		we_wait = true;
-	} else if ((vp = pairfind(request->reply->vps, PW_EXEC_PROGRAM_WAIT, 0, TAG_ANY)) != NULL) {
+	} else if ((vp = fr_pair_find_by_num(request->reply->vps, PW_EXEC_PROGRAM_WAIT, 0, TAG_ANY)) != NULL) {
 		we_wait = false;
 	}
 	if (!vp) {

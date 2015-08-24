@@ -41,11 +41,10 @@ USES_APPLE_DEPRECATED_API	/* OpenSSL API has been deprecated by Apple */
 #endif
 
 static CONF_PARSER module_config[] = {
-	{ "tls", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_eap_tls_t, tls_conf_name), NULL },
+	{ FR_CONF_OFFSET("tls", PW_TYPE_STRING, rlm_eap_tls_t, tls_conf_name) },
 
-	{ "virtual_server", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_eap_tls_t, virtual_server), NULL },
-
-	{ NULL, -1, 0, NULL, NULL }	   /* end the list */
+	{ FR_CONF_OFFSET("virtual_server", PW_TYPE_STRING, rlm_eap_tls_t, virtual_server) },
+	CONF_PARSER_TERMINATOR
 };
 
 
@@ -76,6 +75,7 @@ static int mod_instantiate(CONF_SECTION *cs, void **instance)
 	return 0;
 }
 
+static int CC_HINT(nonnull) mod_process(void *instance, eap_handler_t *handler);
 
 /*
  *	Send an initial eap-tls request to the peer, using the libeap functions.
@@ -118,10 +118,7 @@ static int mod_session_init(void *type_arg, eap_handler_t *handler)
 	}
 	if (status == 0) return 0;
 
-	/*
-	 *	The next stage to process the packet.
-	 */
-	handler->stage = PROCESS;
+	handler->process = mod_process;
 
 	return 1;
 }
@@ -162,10 +159,10 @@ static int CC_HINT(nonnull) mod_process(void *type_arg, eap_handler_t *handler)
 			fake = request_alloc_fake(request);
 			rad_assert(!fake->packet->vps);
 
-			fake->packet->vps = paircopy(fake->packet, request->packet->vps);
+			fake->packet->vps = fr_pair_list_copy(fake->packet, request->packet->vps);
 
 			/* set the virtual server to use */
-			if ((vp = pairfind(request->config, PW_VIRTUAL_SERVER, 0, TAG_ANY)) != NULL) {
+			if ((vp = fr_pair_find_by_num(request->config, PW_VIRTUAL_SERVER, 0, TAG_ANY)) != NULL) {
 				fake->server = vp->vp_strvalue;
 			} else {
 				fake->server = inst->virtual_server;
@@ -175,7 +172,7 @@ static int CC_HINT(nonnull) mod_process(void *type_arg, eap_handler_t *handler)
 			rad_virtual_server(fake);
 
 			/* copy the reply vps back to our reply */
-			pairfilter(request->reply, &request->reply->vps,
+			fr_pair_list_move_by_num(request->reply, &request->reply->vps,
 				  &fake->reply->vps, 0, 0, TAG_ANY);
 
 			/* reject if virtual server didn't return accept */

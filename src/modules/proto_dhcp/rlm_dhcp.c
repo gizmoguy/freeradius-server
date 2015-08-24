@@ -49,7 +49,7 @@ typedef struct rlm_dhcp_t {
  *	Allow single attribute values to be retrieved from the dhcp.
  */
 static ssize_t dhcp_options_xlat(UNUSED void *instance, REQUEST *request,
-				 char const *fmt, char *out, size_t freespace)
+				 char const *fmt, char **out, size_t freespace)
 {
 	vp_cursor_t	cursor, src_cursor;
 	vp_tmpl_t	src;
@@ -63,7 +63,6 @@ static ssize_t dhcp_options_xlat(UNUSED void *instance, REQUEST *request,
 	if (slen <= 0) {
 		REMARKER(fmt, slen, fr_strerror());
 	error:
-		*out = '\0';
 		return -1;
 	}
 
@@ -97,18 +96,18 @@ static ssize_t dhcp_options_xlat(UNUSED void *instance, REQUEST *request,
 			decoded++;
 		}
 
-		pairmove(request->packet, &(request->packet->vps), &head);
+		fr_pair_list_move(request->packet, &(request->packet->vps), &head);
 
 		/* Free any unmoved pairs */
-		pairfree(&head);
+		fr_pair_list_free(&head);
 	}
 
-	snprintf(out, freespace, "%i", decoded);
+	snprintf(*out, freespace, "%i", decoded);
 
-	return strlen(out);
+	return strlen(*out);
 }
 
-static ssize_t dhcp_xlat(UNUSED void *instance, REQUEST *request, char const *fmt, char *out, size_t freespace)
+static ssize_t dhcp_xlat(UNUSED void *instance, REQUEST *request, char const *fmt, char **out, size_t freespace)
 {
 	vp_cursor_t cursor;
 	VALUE_PAIR *vp;
@@ -117,10 +116,7 @@ static ssize_t dhcp_xlat(UNUSED void *instance, REQUEST *request, char const *fm
 
 	while (isspace((int) *fmt)) fmt++;
 
-	if ((radius_copy_vp(request, &vp, request, fmt) < 0) || !vp) {
-		 *out = '\0';
-		 return 0;
-	}
+	if ((radius_copy_vp(request, &vp, request, fmt) < 0) || !vp) return 0;
 	fr_cursor_init(&cursor, &vp);
 
 	len = fr_dhcp_encode_option(request, binbuf, sizeof(binbuf), &cursor);
@@ -138,7 +134,7 @@ static ssize_t dhcp_xlat(UNUSED void *instance, REQUEST *request, char const *fm
 		return -1;
 	}
 
-	return fr_bin2hex(out, binbuf, len);
+	return fr_bin2hex(*out, binbuf, len);
 }
 
 
@@ -150,8 +146,8 @@ static int mod_bootstrap(UNUSED CONF_SECTION *conf, void *instance)
 	rlm_dhcp_t *inst = instance;
 	DICT_ATTR const *da;
 
-	xlat_register("dhcp_options", dhcp_options_xlat, NULL, inst);
-	xlat_register("dhcp", dhcp_xlat, NULL, inst);
+	xlat_register("dhcp_options", dhcp_options_xlat, XLAT_DEFAULT_BUF_LEN, NULL, inst);
+	xlat_register("dhcp", dhcp_xlat, XLAT_DEFAULT_BUF_LEN, NULL, inst);
 
 	/*
 	 *	Fixup dictionary entry for DHCP-Paramter-Request-List adding all the options

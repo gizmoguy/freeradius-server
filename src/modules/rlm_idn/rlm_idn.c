@@ -82,13 +82,12 @@ static const CONF_PARSER mod_config[] = {
 	 *	be used.
 	 */
 
-	{ "allow_unassigned", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_idn_t, allow_unassigned), "no" },
-	{ "use_std3_ascii_rules", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_idn_t, use_std3_ascii_rules), "yes" },
-
-	{ NULL, -1, 0, NULL, NULL }
+	{ FR_CONF_OFFSET("allow_unassigned", PW_TYPE_BOOLEAN, rlm_idn_t, allow_unassigned), .dflt = "no" },
+	{ FR_CONF_OFFSET("use_std3_ascii_rules", PW_TYPE_BOOLEAN, rlm_idn_t, use_std3_ascii_rules), .dflt = "yes" },
+	CONF_PARSER_TERMINATOR
 };
 
-static ssize_t xlat_idna(void *instance, REQUEST *request, char const *fmt, char *out, size_t freespace)
+static ssize_t xlat_idna(void *instance, REQUEST *request, char const *fmt, char **out, size_t freespace)
 {
 	rlm_idn_t *inst = instance;
 	char *idna = NULL;
@@ -125,7 +124,7 @@ static ssize_t xlat_idna(void *instance, REQUEST *request, char const *fmt, char
 
 	}
 
-	strlcpy(out, idna, freespace);
+	strlcpy(*out, idna, freespace);
 	free(idna);
 
 	return len;
@@ -143,7 +142,7 @@ static int mod_bootstrap(CONF_SECTION *conf, void *instance)
 
 	inst->xlat_name = xlat_name;
 
-	xlat_register(inst->xlat_name, xlat_idna, NULL, inst);
+	xlat_register(inst->xlat_name, xlat_idna, XLAT_DEFAULT_BUF_LEN, NULL, inst);
 
 	return 0;
 }

@@ -819,6 +819,12 @@ AC_CHECK_LIB(nsl, inet_ntoa)
 AC_CHECK_LIB(ws2_32, htonl)
 
 dnl #
+dnl #  Check if we need -lrt, this is required on
+dnl #  older Linuxes for clock_gettime.
+dnl #
+AC_CHECK_LIB(rt, clock_gettime)
+
+dnl #
 dnl #  Check the pcap library for the RADIUS sniffer.
 dnl #
 dnl extra argument: --with-pcap-lib-dir=DIR
@@ -1045,7 +1051,8 @@ AC_CHECK_HEADERS( \
   siad.h \
   features.h \
   limits.h \
-  sys/event.h
+  sys/event.h \
+  linux/if_packet.h
 )
 
 dnl #
@@ -1436,6 +1443,7 @@ dnl #  5. Checks for structures and functions
 dnl #
 dnl #############################################################
 AC_CHECK_FUNCS( \
+  clock_gettime \
   getopt_long \
   fcntl \
   strsignal \

@@ -81,8 +81,8 @@ typedef struct rlm_python_t {
  */
 static CONF_PARSER module_config[] = {
 
-#define A(x) { "mod_" #x, FR_CONF_OFFSET(PW_TYPE_STRING, rlm_python_t, x.module_name), NULL }, \
-	{ "func_" #x, FR_CONF_OFFSET(PW_TYPE_STRING, rlm_python_t, x.function_name), NULL },
+#define A(x) { FR_CONF_OFFSET("mod_" #x, PW_TYPE_STRING, rlm_python_t, x.module_name) }, \
+	{ FR_CONF_OFFSET("func_" #x, PW_TYPE_STRING, rlm_python_t, x.function_name) },
 
 	A(instantiate)
 	A(authorize)
@@ -101,9 +101,8 @@ static CONF_PARSER module_config[] = {
 
 #undef A
 
-	{ "python_path", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_python_t, python_path), NULL },
-
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	{ FR_CONF_OFFSET("python_path", PW_TYPE_STRING, rlm_python_t, python_path) },
+	CONF_PARSER_TERMINATOR
 };
 
 static struct {
@@ -343,7 +342,7 @@ static void mod_vptuple(TALLOC_CTX *ctx, VALUE_PAIR **vps, PyObject *pValue,
 		}
 		s1 = PyString_AsString(pStr1);
 		s2 = PyString_AsString(pStr2);
-		vp = pairmake(ctx, vps, s1, s2, op);
+		vp = fr_pair_make(ctx, vps, s1, s2, op);
 		if (vp != NULL) {
 			DEBUG("rlm_python:%s: '%s' = '%s'", funcname, s1, s2);
 		} else {
@@ -365,7 +364,7 @@ static int mod_populate_vptuple(PyObject *pPair, VALUE_PAIR *vp)
 	PyObject *pStr = NULL;
 	char buf[1024];
 
-	/* Look at the vp_print_name? */
+	/* Look at the fr_pair_fprint_name? */
 
 	if (vp->da->flags.has_tag)
 		pStr = PyString_FromFormat("%s:%d", vp->da->name, vp->tag);
@@ -377,7 +376,7 @@ static int mod_populate_vptuple(PyObject *pPair, VALUE_PAIR *vp)
 
 	PyTuple_SET_ITEM(pPair, 0, pStr);
 
-	vp_prints_value(buf, sizeof(buf), vp, '"');
+	fr_pair_value_snprint(buf, sizeof(buf), vp, '"');
 
 	if ((pStr = PyString_FromString(buf)) == NULL)
 		goto failed;

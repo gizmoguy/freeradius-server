@@ -64,7 +64,7 @@ static int _mod_conn_free(rlm_sql_handle_t *conn)
 	return 0;
 }
 
-void *mod_conn_create(TALLOC_CTX *ctx, void *instance)
+void *mod_conn_create(TALLOC_CTX *ctx, void *instance, struct timeval const *timeout)
 {
 	int rcode;
 	rlm_sql_t *inst = instance;
@@ -97,7 +97,7 @@ void *mod_conn_create(TALLOC_CTX *ctx, void *instance)
 	 */
 	talloc_set_destructor(handle, _mod_conn_free);
 
-	rcode = (inst->module->sql_socket_init)(handle, inst->config);
+	rcode = (inst->module->sql_socket_init)(handle, inst->config, timeout);
 	if (rcode != 0) {
 	fail:
 		exec_trigger(NULL, inst->cs, "modules.sql.fail", true);
@@ -120,12 +120,12 @@ void *mod_conn_create(TALLOC_CTX *ctx, void *instance)
 
 /*************************************************************************
  *
- *	Function: sql_userparse
+ *	Function: sql_fr_pair_list_afrom_str
  *
  *	Purpose: Read entries from the database and fill VALUE_PAIR structures
  *
  *************************************************************************/
-int sql_userparse(TALLOC_CTX *ctx, REQUEST *request, VALUE_PAIR **head, rlm_sql_row_t row)
+int sql_fr_pair_list_afrom_str(TALLOC_CTX *ctx, REQUEST *request, VALUE_PAIR **head, rlm_sql_row_t row)
 {
 	VALUE_PAIR *vp;
 	char const *ptr, *value;
@@ -204,21 +204,21 @@ int sql_userparse(TALLOC_CTX *ctx, REQUEST *request, VALUE_PAIR **head, rlm_sql_
 	/*
 	 *	Create the pair
 	 */
-	vp = pairmake(ctx, NULL, row[2], NULL, operator);
+	vp = fr_pair_make(ctx, NULL, row[2], NULL, operator);
 	if (!vp) {
 		REDEBUG("Failed to create the pair: %s", fr_strerror());
 		return -1;
 	}
 
 	if (do_xlat) {
-		if (pairmark_xlat(vp, value) < 0) {
+		if (fr_pair_mark_xlat(vp, value) < 0) {
 			REDEBUG("Error marking pair for xlat");
 
 			talloc_free(vp);
 			return -1;
 		}
 	} else {
-		if (pairparsevalue(vp, value, -1) < 0) {
+		if (fr_pair_value_from_str(vp, value, -1) < 0) {
 			REDEBUG("Error parsing value: %s", fr_strerror());
 
 			talloc_free(vp);
@@ -229,7 +229,7 @@ int sql_userparse(TALLOC_CTX *ctx, REQUEST *request, VALUE_PAIR **head, rlm_sql_
 	/*
 	 *	Add the pair into the packet
 	 */
-	pairadd(head, vp);
+	fr_pair_add(head, vp);
 	return 0;
 }
 
@@ -351,7 +351,7 @@ sql_rcode_t rlm_sql_query(rlm_sql_t *inst, REQUEST *request, rlm_sql_handle_t **
 	/*
 	 *  inst->pool may be NULL is this function is called by mod_conn_create.
 	 */
-	count = inst->pool ? fr_connection_pool_get_num(inst->pool) : 0;
+	count = inst->pool ? fr_connection_pool_state(inst->pool)->num : 0;
 
 	/*
 	 *  Here we try with each of the existing connections, then try to create
@@ -453,7 +453,7 @@ sql_rcode_t rlm_sql_select_query(rlm_sql_t *inst, REQUEST *request, rlm_sql_hand
 	/*
 	 *  inst->pool may be NULL is this function is called by mod_conn_create.
 	 */
-	count = inst->pool ? fr_connection_pool_get_num(inst->pool) : 0;
+	count = inst->pool ? fr_connection_pool_state(inst->pool)->num : 0;
 
 	/*
 	 *  For sanity, for when no connections are viable, and we can't make a new one
@@ -515,7 +515,7 @@ int sql_getvpdata(TALLOC_CTX *ctx, rlm_sql_t *inst, REQUEST *request, rlm_sql_ha
 
 	while (rlm_sql_fetch_row(&row, inst, request, handle) == 0) {
 		if (!row) break;
-		if (sql_userparse(ctx, request, pair, row) != 0) {
+		if (sql_fr_pair_list_afrom_str(ctx, request, pair, row) != 0) {
 			REDEBUG("Error parsing user data from database result");
 
 			(inst->module->sql_finish_select_query)(*handle, inst->config);

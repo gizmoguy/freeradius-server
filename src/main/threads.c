@@ -188,19 +188,19 @@ static void thread_pool_manage(time_t now);
  *	A mapping of configuration file names to internal integers
  */
 static const CONF_PARSER thread_config[] = {
-	{ "start_servers", FR_CONF_POINTER(PW_TYPE_INTEGER, &thread_pool.start_threads), "5" },
-	{ "max_servers", FR_CONF_POINTER(PW_TYPE_INTEGER, &thread_pool.max_threads), "32" },
-	{ "min_spare_servers", FR_CONF_POINTER(PW_TYPE_INTEGER, &thread_pool.min_spare_threads), "3" },
-	{ "max_spare_servers", FR_CONF_POINTER(PW_TYPE_INTEGER, &thread_pool.max_spare_threads), "10" },
-	{ "max_requests_per_server", FR_CONF_POINTER(PW_TYPE_INTEGER, &thread_pool.max_requests_per_thread), "0" },
-	{ "cleanup_delay", FR_CONF_POINTER(PW_TYPE_INTEGER, &thread_pool.cleanup_delay), "5" },
-	{ "max_queue_size", FR_CONF_POINTER(PW_TYPE_INTEGER, &thread_pool.max_queue_size), "65536" },
+	{ FR_CONF_POINTER("start_servers", PW_TYPE_INTEGER, &thread_pool.start_threads), .dflt = "5" },
+	{ FR_CONF_POINTER("max_servers", PW_TYPE_INTEGER, &thread_pool.max_threads), .dflt = "32" },
+	{ FR_CONF_POINTER("min_spare_servers", PW_TYPE_INTEGER, &thread_pool.min_spare_threads), .dflt = "3" },
+	{ FR_CONF_POINTER("max_spare_servers", PW_TYPE_INTEGER, &thread_pool.max_spare_threads), .dflt = "10" },
+	{ FR_CONF_POINTER("max_requests_per_server", PW_TYPE_INTEGER, &thread_pool.max_requests_per_thread), .dflt = "0" },
+	{ FR_CONF_POINTER("cleanup_delay", PW_TYPE_INTEGER, &thread_pool.cleanup_delay), .dflt = "5" },
+	{ FR_CONF_POINTER("max_queue_size", PW_TYPE_INTEGER, &thread_pool.max_queue_size), .dflt = "65536" },
 #ifdef WITH_STATS
 #ifdef WITH_ACCOUNTING
-	{ "auto_limit_acct", FR_CONF_POINTER(PW_TYPE_BOOLEAN, &thread_pool.auto_limit_acct), NULL },
+	{ FR_CONF_POINTER("auto_limit_acct", PW_TYPE_BOOLEAN, &thread_pool.auto_limit_acct) },
 #endif
 #endif
-	{ NULL, -1, 0, NULL, NULL }
+	CONF_PARSER_TERMINATOR
 };
 #endif
 
@@ -663,15 +663,15 @@ static void *request_handler_thread(void *arg)
 			VALUE_PAIR *vp;
 			REQUEST *request = self->request;
 
-			vp = radius_paircreate(request, &request->config,
+			vp = radius_pair_create(request, &request->config,
 					       181, VENDORPEC_FREERADIUS);
 			if (vp) vp->vp_integer = thread_pool.pps_in.pps;
 
-			vp = radius_paircreate(request, &request->config,
+			vp = radius_pair_create(request, &request->config,
 					       182, VENDORPEC_FREERADIUS);
 			if (vp) vp->vp_integer = thread_pool.pps_in.pps;
 
-			vp = radius_paircreate(request, &request->config,
+			vp = radius_pair_create(request, &request->config,
 					       183, VENDORPEC_FREERADIUS);
 			if (vp) {
 				vp->vp_integer = thread_pool.max_queue_size - thread_pool.num_queued;
@@ -1404,15 +1404,25 @@ static void time_free(void *data)
 	free(data);
 }
 
-void exec_trigger(REQUEST *request, CONF_SECTION *cs, char const *name, int quench)
+/** Execute a trigger - call an executable to process an event
+ *
+ * @param request The current request.
+ * @param cs to search for triggers in.  If not NULL, only the portion after the last '.'
+ *	in name is used for the trigger.  If cs is NULL, the entire name is used to find
+ *	the trigger in the global trigger section.
+ * @param name the path relative to the global trigger section ending in the trigger name
+ *	e.g. module.ldap.pool.start.
+ * @param quench whether to rate limit triggers.
+ */
+void exec_trigger(REQUEST *request, CONF_SECTION *cs, char const *name, bool quench)
 {
-	CONF_SECTION *subcs;
-	CONF_ITEM *ci;
-	CONF_PAIR *cp;
-	char const *attr;
-	char const *value;
-	VALUE_PAIR *vp;
-	bool alloc = false;
+	CONF_SECTION	*subcs;
+	CONF_ITEM	*ci;
+	CONF_PAIR	*cp;
+	char const	*attr;
+	char const	*value;
+	VALUE_PAIR	*vp;
+	bool		alloc = false;
 
 	/*
 	 *	Use global "trigger" section if no local config is given.

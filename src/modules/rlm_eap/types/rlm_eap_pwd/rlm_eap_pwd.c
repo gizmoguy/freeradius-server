@@ -42,11 +42,11 @@ USES_APPLE_DEPRECATED_API	/* OpenSSL API has been deprecated by Apple */
 #define MSK_EMSK_LEN    (2*MPPE_KEY_LEN)
 
 static CONF_PARSER pwd_module_config[] = {
-	{ "group", FR_CONF_OFFSET(PW_TYPE_INTEGER, eap_pwd_t, group), "19" },
-	{ "fragment_size", FR_CONF_OFFSET(PW_TYPE_INTEGER, eap_pwd_t, fragment_size), "1020" },
-	{ "server_id", FR_CONF_OFFSET(PW_TYPE_STRING, eap_pwd_t, server_id), NULL },
-	{ "virtual_server", FR_CONF_OFFSET(PW_TYPE_STRING, eap_pwd_t, virtual_server), NULL },
-	{ NULL, -1, 0, NULL, NULL }
+	{ FR_CONF_OFFSET("group", PW_TYPE_INTEGER, eap_pwd_t, group), .dflt = "19" },
+	{ FR_CONF_OFFSET("fragment_size", PW_TYPE_INTEGER, eap_pwd_t, fragment_size), .dflt = "1020" },
+	{ FR_CONF_OFFSET("server_id", PW_TYPE_STRING, eap_pwd_t, server_id) },
+	{ FR_CONF_OFFSET("virtual_server", PW_TYPE_STRING, eap_pwd_t, virtual_server) },
+	CONF_PARSER_TERMINATOR
 };
 
 static int mod_detach (void *arg)
@@ -168,6 +168,8 @@ static int send_pwd_request (pwd_session_t *session, EAP_DS *eap_ds)
 	return 1;
 }
 
+static int CC_HINT(nonnull) mod_process(void *instance, eap_handler_t *handler);
+
 static int mod_session_init (void *instance, eap_handler_t *handler)
 {
 	pwd_session_t *session;
@@ -177,7 +179,7 @@ static int mod_session_init (void *instance, eap_handler_t *handler)
 
 	if (!inst || !handler) {
 		ERROR("rlm_eap_pwd: Initiate, NULL data provided");
-		return -1;
+		return 0;
 	}
 
 	/*
@@ -185,7 +187,7 @@ static int mod_session_init (void *instance, eap_handler_t *handler)
 	*/
 	if (!inst->server_id) {
 		ERROR("rlm_eap_pwd: Server ID is not configured");
-		return -1;
+		return 0;
 	}
 	switch (inst->group) {
 	case 19:
@@ -197,10 +199,10 @@ static int mod_session_init (void *instance, eap_handler_t *handler)
 
 	default:
 		ERROR("rlm_eap_pwd: Group is not supported");
-		return -1;
+		return 0;
 	}
 
-	if ((session = talloc_zero(handler, pwd_session_t)) == NULL) return -1;
+	if ((session = talloc_zero(handler, pwd_session_t)) == NULL) return 0;
 	talloc_set_destructor(session, _free_pwd_session);
 	/*
 	 * set things up so they can be free'd reliably
@@ -221,7 +223,7 @@ static int mod_session_init (void *instance, eap_handler_t *handler)
 	 *	The admin can dynamically change the MTU.
 	 */
 	session->mtu = inst->fragment_size;
-	vp = pairfind(handler->request->packet->vps, PW_FRAMED_MTU, 0, TAG_ANY);
+	vp = fr_pair_find_by_num(handler->request->packet->vps, PW_FRAMED_MTU, 0, TAG_ANY);
 
 	/*
 	 *	session->mtu is *our* MTU.  We need to subtract off the EAP
@@ -246,7 +248,7 @@ static int mod_session_init (void *instance, eap_handler_t *handler)
 	 */
 	session->out_len = sizeof(pwd_id_packet_t) + strlen(inst->server_id);
 	if ((session->out = talloc_zero_array(session, uint8_t, session->out_len)) == NULL) {
-		return -1;
+		return 0;
 	}
 
 	packet = (pwd_id_packet_t *)session->out;
@@ -258,9 +260,11 @@ static int mod_session_init (void *instance, eap_handler_t *handler)
 	packet->prep = EAP_PWD_PREP_NONE;
 	memcpy(packet->identity, inst->server_id, session->out_len - sizeof(pwd_id_packet_t) );
 
-	handler->stage = PROCESS;
+	if (!send_pwd_request(session, handler->eap_ds)) return 0;
 
-	return send_pwd_request(session, handler->eap_ds);
+	handler->process = mod_process;
+
+	return 1;
 }
 
 static int mod_process(void *arg, eap_handler_t *handler)
@@ -426,7 +430,7 @@ static int mod_process(void *arg, eap_handler_t *handler)
 			RDEBUG("pwd unable to create fake request!");
 			return 0;
 		}
-		fake->username = pairmake_packet("User-Name", NULL, T_OP_EQ);
+		fake->username = pair_make_request("User-Name", NULL, T_OP_EQ);
 		if (!fake->username) {
 			RDEBUG("pwd unanable to create value pair for username!");
 			talloc_free(fake);
@@ -437,9 +441,9 @@ static int mod_process(void *arg, eap_handler_t *handler)
 		memcpy(p, session->peer_id, session->peer_id_len);
 		p[fake->username->vp_length] = '\0';
 
-		pairadd(&fake->packet->vps, fake->username);
+		fr_pair_add(&fake->packet->vps, fake->username);
 
-		if ((vp = pairfind(request->config, PW_VIRTUAL_SERVER, 0, TAG_ANY)) != NULL) {
+		if ((vp = fr_pair_find_by_num(request->config, PW_VIRTUAL_SERVER, 0, TAG_ANY)) != NULL) {
 			fake->server = vp->vp_strvalue;
 		} else if (inst->virtual_server) {
 			fake->server = inst->virtual_server;
@@ -475,7 +479,7 @@ static int mod_process(void *arg, eap_handler_t *handler)
 		RDEBUG("Got tunneled reply code %d", fake->reply->code);
 		rdebug_pair_list(L_DBG_LVL_1, request, fake->reply->vps, NULL);
 
-		if ((pw = pairfind(fake->config, PW_CLEARTEXT_PASSWORD, 0, TAG_ANY)) == NULL) {
+		if ((pw = fr_pair_find_by_num(fake->config, PW_CLEARTEXT_PASSWORD, 0, TAG_ANY)) == NULL) {
 			DEBUG2("failed to find password for %s to do pwd authentication",
 			session->peer_id);
 			talloc_free(fake);

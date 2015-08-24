@@ -32,9 +32,9 @@ RCSID("$Id$")
 #include "krb5.h"
 
 static const CONF_PARSER module_config[] = {
-	{ "keytab", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_krb5_t, keytabname), NULL },
-	{ "service_principal", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_krb5_t, service_princ), NULL },
-	{ NULL, -1, 0, NULL, NULL }
+	{ FR_CONF_OFFSET("keytab", PW_TYPE_STRING, rlm_krb5_t, keytabname) },
+	{ FR_CONF_OFFSET("service_principal", PW_TYPE_STRING, rlm_krb5_t, service_princ) },
+	CONF_PARSER_TERMINATOR
 };
 
 static int mod_detach(void *instance)
@@ -213,7 +213,7 @@ static int mod_instantiate(CONF_SECTION *conf, void *instance)
 	inst->pool = fr_connection_pool_module_init(conf, inst, mod_conn_create, NULL, NULL);
 	if (!inst->pool) return -1;
 #else
-	inst->conn = mod_conn_create(inst, inst);
+	inst->conn = mod_conn_create(inst, inst, NULL);
 	if (!inst->conn) return -1;
 #endif
 	return 0;

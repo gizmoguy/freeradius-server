@@ -65,15 +65,21 @@ int cache_serialize(TALLOC_CTX *ctx, char **out, rlm_cache_entry_t const *c)
 
 	for (map = c->maps; map; map = map->next) {
 		char	*value;
+		size_t	len;
 
-		tmpl_prints(attr, sizeof(attr), map->lhs, map->lhs->tmpl_da);
+		len = tmpl_snprint(attr, sizeof(attr), map->lhs, map->lhs->tmpl_da);
+		if (is_truncated(len, sizeof(attr))) {
+			fr_strerror_printf("Serialized attribute too long.  Must be < " STRINGIFY(sizeof(attr)) " "
+					   "bytes, got %zu bytes", len);
+			goto error;
+		}
 
-		value = value_data_aprints(value_pool, map->rhs->tmpl_data_type,
+		value = value_data_asprint(value_pool, map->rhs->tmpl_data_type,
 					   map->lhs->tmpl_da, &map->rhs->tmpl_data_value, '\'');
 		if (!value) goto error;
 
 		to_store = talloc_asprintf_append_buffer(to_store, "%s %s %s\n", attr,
-							 fr_int2str(fr_tokens, map->op, "<INVALID>"),
+							 fr_int2str(fr_tokens_table, map->op, "<INVALID>"),
 							 value);
 		if (!to_store) goto error;
 	}
@@ -125,7 +131,7 @@ int cache_deserialize(rlm_cache_entry_t *c, char *in, ssize_t inlen)
 			goto error;
 		}
 
-		if (map->rhs->type != TMPL_TYPE_LITERAL) {
+		if (map->rhs->type != TMPL_TYPE_UNPARSED) {
 			fr_strerror_printf("Pair right hand side \"%s\" parsed as %s, needed literal.  "
 					   "Check serialized data quoting", map->rhs->name,
 					   fr_int2str(tmpl_names, map->rhs->type, "<INVALID>"));

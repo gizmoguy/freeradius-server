@@ -80,8 +80,8 @@ static struct radutmp_config_t {
 } radutmpconfig;
 
 static const CONF_PARSER module_config[] = {
-  { "filename", FR_CONF_POINTER(PW_TYPE_FILE_INPUT, &radutmpconfig.radutmp_fn), RADUTMP },
-  { NULL, -1, 0, NULL, NULL }
+  { FR_CONF_POINTER("filename", PW_TYPE_FILE_INPUT, &radutmpconfig.radutmp_fn), .dflt = RADUTMP },
+  CONF_PARSER_TERMINATOR
 };
 
 /*
@@ -442,10 +442,10 @@ int main(int argc, char **argv)
 			memcpy(nasname, rt.login, sizeof(rt.login));
 			nasname[sizeof(rt.login)] = '\0';
 
-			fr_prints(buffer, sizeof(buffer), nasname, -1, '"');
+			fr_snprint(buffer, sizeof(buffer), nasname, -1, '"');
 			printf("User-Name = \"%s\"\n", buffer);
 
-			fr_prints(buffer, sizeof(buffer), session_id, -1, '"');
+			fr_snprint(buffer, sizeof(buffer), session_id, -1, '"');
 			printf("Acct-Session-Id = \"%s\"\n", buffer);
 
 			if (zap) printf("Acct-Status-Type = Stop\n");
@@ -489,7 +489,7 @@ int main(int argc, char **argv)
 				       sizeof(rt.caller_id));
 				nasname[sizeof(rt.caller_id)] = '\0';
 
-				fr_prints(buffer, sizeof(buffer), nasname, -1, '"');
+				fr_snprint(buffer, sizeof(buffer), nasname, -1, '"');
 				printf("Calling-Station-Id = \"%s\"\n", buffer);
 			}
 

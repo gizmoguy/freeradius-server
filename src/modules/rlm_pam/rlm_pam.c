@@ -52,8 +52,8 @@ typedef struct rlm_pam_t {
 } rlm_pam_t;
 
 static const CONF_PARSER module_config[] = {
-	{ "pam_auth", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_pam_t, pam_auth_name), "radiusd" },
-	{ NULL, -1, 0, NULL, NULL }
+	{ FR_CONF_OFFSET("pam_auth", PW_TYPE_STRING, rlm_pam_t, pam_auth_name), .dflt = "radiusd" },
+	CONF_PARSER_TERMINATOR
 };
 
 typedef struct rlm_pam_data_t {
@@ -223,7 +223,7 @@ static rlm_rcode_t CC_HINT(nonnull) mod_authenticate(void *instance, REQUEST *re
 	 *	Let the 'users' file over-ride the PAM auth name string,
 	 *	for backwards compatibility.
 	 */
-	pair = pairfind(request->config, PW_PAM_AUTH, 0, TAG_ANY);
+	pair = fr_pair_find_by_num(request->config, PW_PAM_AUTH, 0, TAG_ANY);
 	if (pair) pam_auth_string = pair->vp_strvalue;
 
 	ret = do_pam(request, request->username->vp_strvalue, request->password->vp_strvalue, pam_auth_string);

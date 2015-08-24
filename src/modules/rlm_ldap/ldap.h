@@ -122,6 +122,15 @@ ldap_create_session_tracking_control LDAP_P((
 
 #define LDAP_VIRTUAL_DN_ATTR		"dn"		//!< 'Virtual' attribute which maps to the DN of the object.
 
+
+typedef enum {
+	LDAP_EXT_UNSUPPORTED,				//!< Unsupported extension.
+	LDAP_EXT_BINDNAME,				//!< Specifies the user DN or name for an LDAP bind.
+	LDAP_EXT_BINDPW,				//!< Specifies the password for an LDAP bind.
+} ldap_supported_extension;
+
+extern FR_NAME_NUMBER const ldap_supported_extensions[];
+
 typedef struct ldap_instance rlm_ldap_t;
 
 typedef struct ldap_acct_section {
@@ -189,6 +198,8 @@ struct ldap_instance {
 							//!< or point in the tree, follow it, establishing new
 							//!< connections and binding where necessary.
 	bool		chase_referrals_unset;		//!< If true, use the OpenLDAP defaults for chase_referrals.
+
+	bool		use_referral_credentials;	//!< If true use credentials from the referral URL.
 
 	bool		rebind;				//!< Controls whether we set an ldad_rebind_proc function
 							//!< and so determines if we can bind to other servers whilst
@@ -326,8 +337,6 @@ struct ldap_instance {
 							//!< identify the autz or acct session the commands were
 							//!< issued for.
 #endif
-	uint32_t  	net_timeout;			//!< How long we wait for new connections to the LDAP server
-							//!< to be established.
 	uint32_t	res_timeout;			//!< How long we wait for a result from the server.
 	uint32_t	srv_timelimit;			//!< How long the server should spent on a single request
 							//!< (also bounded by value on the server).
@@ -476,7 +485,7 @@ ldap_rcode_t rlm_ldap_result(rlm_ldap_t const *inst, ldap_handle_t const *conn, 
 
 char *rlm_ldap_berval_to_string(TALLOC_CTX *ctx, struct berval const *in);
 
-void *mod_conn_create(TALLOC_CTX *ctx, void *instance);
+void *mod_conn_create(TALLOC_CTX *ctx, void *instance, struct timeval const *timeout);
 
 ldap_handle_t *mod_conn_get(rlm_ldap_t const *inst, REQUEST *request);
 
@@ -518,8 +527,10 @@ int  rlm_ldap_client_load(rlm_ldap_t const *inst, CONF_SECTION *tmpl, CONF_SECTI
 /*
  *	control.c - Connection based client/server controls
  */
-void rlm_ldap_control_merge(LDAPControl *serverctrls_out[LDAP_MAX_CONTROLS],
-			    LDAPControl *clientctrls_out[LDAP_MAX_CONTROLS],
+void rlm_ldap_control_merge(LDAPControl *serverctrls_out[],
+			    LDAPControl *clientctrls_out[],
+			    size_t serverctrls_len,
+			    size_t clientctrls_len,
 			    ldap_handle_t *conn,
 			    LDAPControl *serverctrls_in[],
 			    LDAPControl *clientctrls_in[]);

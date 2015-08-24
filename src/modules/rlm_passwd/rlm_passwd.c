@@ -387,19 +387,18 @@ typedef struct rlm_passwd_t {
 } rlm_passwd_t;
 
 static const CONF_PARSER module_config[] = {
-	{ "filename", FR_CONF_OFFSET(PW_TYPE_FILE_INPUT | PW_TYPE_REQUIRED, rlm_passwd_t, filename), NULL },
-	{ "format", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_REQUIRED, rlm_passwd_t, format), NULL },
-	{ "delimiter", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_passwd_t, delimiter), ":" },
+	{ FR_CONF_OFFSET("filename", PW_TYPE_FILE_INPUT | PW_TYPE_REQUIRED, rlm_passwd_t, filename) },
+	{ FR_CONF_OFFSET("format", PW_TYPE_STRING | PW_TYPE_REQUIRED, rlm_passwd_t, format) },
+	{ FR_CONF_OFFSET("delimiter", PW_TYPE_STRING, rlm_passwd_t, delimiter), .dflt = ":" },
 
-	{ "ignore_nislike", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_passwd_t, ignore_nislike), "yes" },
+	{ FR_CONF_OFFSET("ignore_nislike", PW_TYPE_BOOLEAN, rlm_passwd_t, ignore_nislike), .dflt = "yes" },
 
-	{ "ignore_empty",  FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_passwd_t, ignore_empty), "yes" },
+	{ FR_CONF_OFFSET("ignore_empty", PW_TYPE_BOOLEAN, rlm_passwd_t, ignore_empty), .dflt = "yes" },
 
-	{ "allow_multiple_keys", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_passwd_t, allow_multiple), "no" },
+	{ FR_CONF_OFFSET("allow_multiple_keys", PW_TYPE_BOOLEAN, rlm_passwd_t, allow_multiple), .dflt = "no" },
 
-	{ "hash_size", FR_CONF_OFFSET(PW_TYPE_INTEGER, rlm_passwd_t, hash_size), "100" },
-
-	{ NULL, -1, 0, NULL, NULL }
+	{ FR_CONF_OFFSET("hash_size", PW_TYPE_INTEGER, rlm_passwd_t, hash_size), .dflt = "100" },
+	CONF_PARSER_TERMINATOR
 };
 
 static int mod_instantiate(CONF_SECTION *conf, void *instance)
@@ -522,7 +521,7 @@ static void addresult (TALLOC_CTX *ctx, rlm_passwd_t *inst, REQUEST *request,
 	for (i = 0; i < inst->nfields; i++) {
 		if (inst->pwdfmt->field[i] && *inst->pwdfmt->field[i] && pw->field[i] && i != inst->keyfield  && inst->pwdfmt->listflag[i] == when) {
 			if ( !inst->ignore_empty || pw->field[i][0] != 0 ) { /* if value in key/value pair is not empty */
-				vp = pairmake(ctx, vps, inst->pwdfmt->field[i], pw->field[i], T_OP_EQ);
+				vp = fr_pair_make(ctx, vps, inst->pwdfmt->field[i], pw->field[i], T_OP_EQ);
 				if (vp) {
 					RDEBUG("Added %s: '%s' to %s ", inst->pwdfmt->field[i], pw->field[i], listname);
 				}
@@ -540,7 +539,7 @@ static rlm_rcode_t CC_HINT(nonnull) mod_passwd_map(void *instance, REQUEST *requ
 	struct mypasswd * pw, *last_found;
 	vp_cursor_t cursor;
 
-	key = pair_find_by_da(request->packet->vps, inst->keyattr, TAG_ANY);
+	key = fr_pair_find_by_da(request->packet->vps, inst->keyattr, TAG_ANY);
 	if (!key) {
 		return RLM_MODULE_NOTFOUND;
 	}
@@ -551,7 +550,7 @@ static rlm_rcode_t CC_HINT(nonnull) mod_passwd_map(void *instance, REQUEST *requ
 		/*
 		 *	Ensure we have the string form of the attribute
 		 */
-		vp_prints_value(buffer, sizeof(buffer), i, 0);
+		fr_pair_value_snprint(buffer, sizeof(buffer), i, 0);
 		if (!(pw = get_pw_nam(buffer, inst->ht, &last_found)) ) {
 			continue;
 		}

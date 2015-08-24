@@ -86,9 +86,9 @@ typedef struct rlm_ruby_t {
  *	buffer over-flows.
  */
 static const CONF_PARSER module_config[] = {
-	{ "filename", FR_CONF_OFFSET(PW_TYPE_FILE_INPUT | PW_TYPE_REQUIRED, struct rlm_ruby_t, filename), NULL },
-	{ "module", FR_CONF_OFFSET(PW_TYPE_STRING, struct rlm_ruby_t, module_name), "Radiusd" },
-	{ NULL, -1, 0, NULL, NULL } /* end of module_config */
+	{ FR_CONF_OFFSET("filename", PW_TYPE_FILE_INPUT | PW_TYPE_REQUIRED, struct rlm_ruby_t, filename) },
+	{ FR_CONF_OFFSET("module", PW_TYPE_STRING, struct rlm_ruby_t, module_name), .dflt = "Radiusd" },
+	CONF_PARSER_TERMINATOR
 };
 
 
@@ -153,7 +153,7 @@ static void add_vp_tuple(TALLOC_CTX *ctx, REQUEST *request, VALUE_PAIR **vpp, VA
 
 					char const *s1, *s2;
 
-					/* pairmake() will convert and find any
+					/* fr_pair_make() will convert and find any
 					 * errors in the pair.
 					 */
 
@@ -165,7 +165,7 @@ static void add_vp_tuple(TALLOC_CTX *ctx, REQUEST *request, VALUE_PAIR **vpp, VA
 						       function_name, s1, s2);
 
 						/* xxx Might need to support other T_OP */
-						vp = pairmake(ctx, vpp, s1, s2, T_OP_EQ);
+						vp = fr_pair_make(ctx, vpp, s1, s2, T_OP_EQ);
 						if (vp != NULL) {
 							DEBUG("%s: s1, s2 OK", function_name);
 						} else {
@@ -200,7 +200,7 @@ static rlm_rcode_t CC_HINT(nonnull (4)) do_ruby(REQUEST *request, unsigned long 
 	rlm_rcode_t rcode = RLM_MODULE_OK;
 	vp_cursor_t cursor;
 
-	char buf[BUF_SIZE]; /* same size as vp_print buffer */
+	char buf[BUF_SIZE]; /* same size as fr_pair_fprint buffer */
 
 	VALUE_PAIR *vp;
 	VALUE rb_request, rb_result, rb_reply_items, rb_config, rbString1, rbString2;
@@ -236,14 +236,14 @@ static rlm_rcode_t CC_HINT(nonnull (4)) do_ruby(REQUEST *request, unsigned long 
 		     vp = fr_cursor_next(&cursor)) {
 			VALUE tmp = rb_ary_new2(2);
 
-			/* The name. logic from vp_prints, lib/print.c */
+			/* The name. logic from fr_pair_snprint, lib/print.c */
 			if (vp->da->flags.has_tag) {
 				snprintf(buf, BUF_SIZE, "%s:%d", vp->da->name, vp->tag);
 			} else {
 				strlcpy(buf, vp->da->name, sizeof(buf));
 			}
 			rbString1 = rb_str_new2(buf);
-			vp_prints_value(buf, sizeof (buf), vp, '"');
+			fr_pair_value_snprint(buf, sizeof (buf), vp, '"');
 			rbString2 = rb_str_new2(buf);
 
 			rb_ary_push(tmp, rbString1);

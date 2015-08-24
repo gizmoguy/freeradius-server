@@ -125,41 +125,36 @@ typedef struct linelog_conn {
 
 
 static const CONF_PARSER file_config[] = {
-	{ "filename", FR_CONF_OFFSET(PW_TYPE_FILE_OUTPUT | PW_TYPE_XLAT, linelog_instance_t, file.name), NULL },
-	{ "permissions", FR_CONF_OFFSET(PW_TYPE_INTEGER, linelog_instance_t, file.permissions), "0600" },
-	{ "group", FR_CONF_OFFSET(PW_TYPE_STRING, linelog_instance_t, file.group_str), NULL },
-	{ "escape_filenames", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, linelog_instance_t, file.escape), "no" },
-
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	{ FR_CONF_OFFSET("filename", PW_TYPE_FILE_OUTPUT | PW_TYPE_XLAT, linelog_instance_t, file.name) },
+	{ FR_CONF_OFFSET("permissions", PW_TYPE_INTEGER, linelog_instance_t, file.permissions), .dflt = "0600" },
+	{ FR_CONF_OFFSET("group", PW_TYPE_STRING, linelog_instance_t, file.group_str) },
+	{ FR_CONF_OFFSET("escape_filenames", PW_TYPE_BOOLEAN, linelog_instance_t, file.escape), .dflt = "no" },
+	CONF_PARSER_TERMINATOR
 };
 
 static const CONF_PARSER syslog_config[] = {
-	{ "facility", FR_CONF_OFFSET(PW_TYPE_STRING, linelog_instance_t, syslog.facility), NULL },
-	{ "severity", FR_CONF_OFFSET(PW_TYPE_STRING, linelog_instance_t, syslog.severity), "info" },
-
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	{ FR_CONF_OFFSET("facility", PW_TYPE_STRING, linelog_instance_t, syslog.facility) },
+	{ FR_CONF_OFFSET("severity", PW_TYPE_STRING, linelog_instance_t, syslog.severity), .dflt = "info" },
+	CONF_PARSER_TERMINATOR
 };
 
 static const CONF_PARSER unix_config[] = {
-	{ "filename", FR_CONF_OFFSET(PW_TYPE_FILE_INPUT, linelog_instance_t, unix.path), NULL },
-
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	{ FR_CONF_OFFSET("filename", PW_TYPE_FILE_INPUT, linelog_instance_t, unix.path) },
+	CONF_PARSER_TERMINATOR
 };
 
 static const CONF_PARSER udp_config[] = {
-	{ "server", FR_CONF_OFFSET(PW_TYPE_COMBO_IP_ADDR, linelog_net_t, dst_ipaddr), NULL },
-	{ "port", FR_CONF_OFFSET(PW_TYPE_SHORT, linelog_net_t, port), NULL },
-	{ "timeout", FR_CONF_OFFSET(PW_TYPE_TIMEVAL, linelog_net_t, timeout), "1000" },
-
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	{ FR_CONF_OFFSET("server", PW_TYPE_COMBO_IP_ADDR, linelog_net_t, dst_ipaddr) },
+	{ FR_CONF_OFFSET("port", PW_TYPE_SHORT, linelog_net_t, port) },
+	{ FR_CONF_OFFSET("timeout", PW_TYPE_TIMEVAL, linelog_net_t, timeout), .dflt = "1000" },
+	CONF_PARSER_TERMINATOR
 };
 
 static const CONF_PARSER tcp_config[] = {
-	{ "server", FR_CONF_OFFSET(PW_TYPE_COMBO_IP_ADDR, linelog_net_t, dst_ipaddr), NULL },
-	{ "port", FR_CONF_OFFSET(PW_TYPE_SHORT, linelog_net_t, port), NULL },
-	{ "timeout", FR_CONF_OFFSET(PW_TYPE_TIMEVAL, linelog_net_t, timeout), "1000" },
-
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	{ FR_CONF_OFFSET("server", PW_TYPE_COMBO_IP_ADDR, linelog_net_t, dst_ipaddr) },
+	{ FR_CONF_OFFSET("port", PW_TYPE_SHORT, linelog_net_t, port) },
+	{ FR_CONF_OFFSET("timeout", PW_TYPE_TIMEVAL, linelog_net_t, timeout), .dflt = "1000" },
+	CONF_PARSER_TERMINATOR
 };
 
 /*
@@ -172,32 +167,31 @@ static const CONF_PARSER tcp_config[] = {
  *	buffer over-flows.
  */
 static const CONF_PARSER module_config[] = {
-	{ "destination", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_REQUIRED, linelog_instance_t, log_dst_str), NULL },
+	{ FR_CONF_OFFSET("destination", PW_TYPE_STRING | PW_TYPE_REQUIRED, linelog_instance_t, log_dst_str) },
 
-	{ "delimiter", FR_CONF_OFFSET(PW_TYPE_STRING, linelog_instance_t, delimiter), "\n" },
-	{ "format", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_TMPL, linelog_instance_t, log_src), NULL },
-	{ "reference", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_TMPL, linelog_instance_t, log_ref), NULL },
+	{ FR_CONF_OFFSET("delimiter", PW_TYPE_STRING, linelog_instance_t, delimiter), .dflt = "\n" },
+	{ FR_CONF_OFFSET("format", PW_TYPE_TMPL, linelog_instance_t, log_src) },
+	{ FR_CONF_OFFSET("reference", PW_TYPE_TMPL, linelog_instance_t, log_ref) },
 
 	/*
 	 *	Log destinations
 	 */
-	{ "file", FR_CONF_POINTER(PW_TYPE_SUBSECTION, NULL), (void const *) file_config },
-	{ "syslog", FR_CONF_POINTER(PW_TYPE_SUBSECTION, NULL), (void const *) syslog_config },
-	{ "unix", FR_CONF_POINTER(PW_TYPE_SUBSECTION, NULL), (void const *) unix_config },
-	{ "tcp", FR_CONF_OFFSET(PW_TYPE_SUBSECTION, linelog_instance_t, tcp), (void const *) tcp_config },
-	{ "udp", FR_CONF_OFFSET(PW_TYPE_SUBSECTION, linelog_instance_t, udp), (void const *) udp_config },
+	{ FR_CONF_POINTER("file", PW_TYPE_SUBSECTION, NULL), .dflt = (void const *) file_config },
+	{ FR_CONF_POINTER("syslog", PW_TYPE_SUBSECTION, NULL), .dflt = (void const *) syslog_config },
+	{ FR_CONF_POINTER("unix", PW_TYPE_SUBSECTION, NULL), .dflt = (void const *) unix_config },
+	{ FR_CONF_OFFSET("tcp", PW_TYPE_SUBSECTION, linelog_instance_t, tcp), .dflt = (void const *) tcp_config },
+	{ FR_CONF_OFFSET("udp", PW_TYPE_SUBSECTION, linelog_instance_t, udp), .dflt = (void const *) udp_config },
 
 	/*
 	 *	Deprecated config items
 	 */
-	{ "filename", FR_CONF_OFFSET(PW_TYPE_FILE_OUTPUT | PW_TYPE_DEPRECATED, linelog_instance_t, file.name), NULL },
-	{ "permissions", FR_CONF_OFFSET(PW_TYPE_INTEGER | PW_TYPE_DEPRECATED, linelog_instance_t, file.permissions), NULL },
-	{ "group", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_DEPRECATED, linelog_instance_t, file.group_str), NULL },
+	{ FR_CONF_OFFSET("filename", PW_TYPE_FILE_OUTPUT | PW_TYPE_DEPRECATED, linelog_instance_t, file.name) },
+	{ FR_CONF_OFFSET("permissions", PW_TYPE_INTEGER | PW_TYPE_DEPRECATED, linelog_instance_t, file.permissions) },
+	{ FR_CONF_OFFSET("group", PW_TYPE_STRING | PW_TYPE_DEPRECATED, linelog_instance_t, file.group_str) },
 
-	{ "syslog_facility", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_DEPRECATED, linelog_instance_t, syslog.facility), NULL },
-	{ "syslog_severity", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_DEPRECATED, linelog_instance_t, syslog.severity), NULL },
-
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	{ FR_CONF_OFFSET("syslog_facility", PW_TYPE_STRING | PW_TYPE_DEPRECATED, linelog_instance_t, syslog.facility) },
+	{ FR_CONF_OFFSET("syslog_severity", PW_TYPE_STRING | PW_TYPE_DEPRECATED, linelog_instance_t, syslog.severity) },
+	CONF_PARSER_TERMINATOR
 };
 
 
@@ -209,17 +203,14 @@ static int _mod_conn_free(linelog_conn_t *conn)
 	return 0;
 }
 
-static void *mod_conn_create(TALLOC_CTX *ctx, void *instance)
+static void *mod_conn_create(TALLOC_CTX *ctx, void *instance, struct timeval const *timeout)
 {
 	linelog_instance_t	*inst = instance;
 	linelog_conn_t		*conn;
 	int			sockfd = -1;
-	struct timeval		*timeout = NULL;
 
 	switch (inst->log_dst) {
 	case LINELOG_DST_UNIX:
-		if (inst->unix.timeout.tv_sec || inst->unix.timeout.tv_usec) timeout = &inst->unix.timeout;
-
 		DEBUG2("rlm_linelog (%s): Opening UNIX socket at \"%s\"", inst->name, inst->unix.path);
 		sockfd = fr_socket_client_unix(inst->unix.path, true);
 		if (sockfd < 0) {
@@ -229,8 +220,6 @@ static void *mod_conn_create(TALLOC_CTX *ctx, void *instance)
 		break;
 
 	case LINELOG_DST_TCP:
-		if (inst->tcp.timeout.tv_sec || inst->tcp.timeout.tv_usec) timeout = &inst->tcp.timeout;
-
 		if (DEBUG_ENABLED2) {
 			char buff[INET6_ADDRSTRLEN + 4]; /* IPv6 + /<d><d><d> */
 
@@ -247,8 +236,6 @@ static void *mod_conn_create(TALLOC_CTX *ctx, void *instance)
 		break;
 
 	case LINELOG_DST_UDP:
-		if (inst->udp.timeout.tv_sec || inst->udp.timeout.tv_usec) timeout = &inst->udp.timeout;
-
 		if (DEBUG_ENABLED2) {
 			char buff[INET6_ADDRSTRLEN + 4]; /* IPv6 + /<d><d><d> */
 
@@ -275,7 +262,7 @@ static void *mod_conn_create(TALLOC_CTX *ctx, void *instance)
 	}
 
 	if (errno == EINPROGRESS) {
-		if (timeout) {
+		if (FR_TIMEVAL_TO_MS(timeout)) {
 			DEBUG2("rlm_linelog (%s): Waiting for connection to complete...", inst->name);
 		} else {
 			DEBUG2("rlm_linelog (%s): Blocking until connection complete...", inst->name);
@@ -291,7 +278,7 @@ static void *mod_conn_create(TALLOC_CTX *ctx, void *instance)
 	/*
 	 *	Set blocking operation as we have no timeout set
 	 */
-	if (!timeout && (fr_blocking(sockfd) < 0)) {
+	if (!FR_TIMEVAL_TO_MS(timeout) && (fr_blocking(sockfd) < 0)) {
 		ERROR("rlm_linelog (%s): Failed setting nonblock flag on fd", inst->name);
 		close(sockfd);
 		return NULL;
@@ -585,7 +572,7 @@ static rlm_rcode_t mod_do_linelog(void *instance, REQUEST *request)
 		tmpl_str = cf_pair_value(cp);
 		if (!tmpl_str || (tmpl_str[0] == '\0')) {
 			RDEBUG2("Path \"%s\" resolves to an empty config pair", p);
-			vpt_p = tmpl_init(&empty, TMPL_TYPE_LITERAL, "", 0);
+			vpt_p = tmpl_init(&empty, TMPL_TYPE_UNPARSED, "", 0, T_DOUBLE_QUOTED_STRING);
 			goto build_vector;
 		}
 
@@ -650,7 +637,7 @@ build_vector:
 				break;
 
 			default:
-				p = vp_aprints_value(vector, vp, '\0');
+				p = fr_pair_value_asprint(vector, vp, '\0');
 				vector[i].iov_base = p;
 				vector[i].iov_len = talloc_array_length(p) - 1;
 				break;
@@ -764,7 +751,7 @@ build_vector:
 		if (inst->tcp.timeout.tv_sec || inst->tcp.timeout.tv_usec) timeout = &inst->tcp.timeout;
 
 	do_write:
-		num = fr_connection_pool_get_num(inst->pool);
+		num = fr_connection_pool_state(inst->pool)->num;
 		conn = fr_connection_get(inst->pool);
 		if (!conn) {
 			rcode = RLM_MODULE_FAIL;

@@ -41,7 +41,6 @@ char const *progname = NULL;
 char const *radacct_dir = NULL;
 char const *radlog_dir = NULL;
 char const *radlib_dir = NULL;
-bool check_config = false;
 bool log_stripped_names = false;
 
 static bool memory_report = false;
@@ -145,7 +144,7 @@ static REQUEST *request_setup(FILE *fp)
 	/*
 	 *	Read packet from fp
 	 */
-	if (readvp2(request->packet, &request->packet->vps, fp, &filedone) < 0) {
+	if (fr_pair_list_afrom_file(request->packet, &request->packet->vps, fp, &filedone) < 0) {
 		fr_perror("unittest");
 		talloc_free(request);
 		return NULL;
@@ -297,9 +296,9 @@ static REQUEST *request_setup(FILE *fp)
 			vp->da = da;
 
 			/*
-			 *	Re-do pairmemsteal ourselves,
+			 *	Re-do fr_pair_value_memsteal ourselves,
 			 *	because we play games with
-			 *	vp->da, and pairmemsteal goes
+			 *	vp->da, and fr_pair_value_memsteal goes
 			 *	to GREAT lengths to sanitize
 			 *	and fix and change and
 			 *	double-check the various
@@ -333,7 +332,7 @@ static REQUEST *request_setup(FILE *fp)
 				rad_assert(0);
 			}
 
-			vp_print(fr_log_fp, vp);
+			fr_pair_fprint(fr_log_fp, vp);
 		}
 		fflush(fr_log_fp);
 	}
@@ -373,8 +372,8 @@ static REQUEST *request_setup(FILE *fp)
 	request->log.lvl = rad_debug_lvl;
 	request->log.func = vradlog_request;
 
-	request->username = pairfind(request->packet->vps, PW_USER_NAME, 0, TAG_ANY);
-	request->password = pairfind(request->packet->vps, PW_USER_PASSWORD, 0, TAG_ANY);
+	request->username = fr_pair_find_by_num(request->packet->vps, PW_USER_NAME, 0, TAG_ANY);
+	request->password = fr_pair_find_by_num(request->packet->vps, PW_USER_PASSWORD, 0, TAG_ANY);
 
 	return request;
 }
@@ -405,7 +404,7 @@ static void print_packet(FILE *fp, RADIUS_PACKET *packet)
 			rad_assert(0);
 		}
 
-		vp_print(fp, vp);
+		fr_pair_fprint(fp, vp);
 	}
 	fflush(fp);
 }
@@ -417,7 +416,7 @@ static void print_packet(FILE *fp, RADIUS_PACKET *packet)
  *	%{poke:sql.foo=bar}
  */
 static ssize_t xlat_poke(UNUSED void *instance, REQUEST *request,
-			 char const *fmt, char *out, size_t outlen)
+			 char const *fmt, char **out, size_t outlen)
 {
 	int i;
 	void *data, *base;
@@ -433,8 +432,7 @@ static ssize_t xlat_poke(UNUSED void *instance, REQUEST *request,
 	rad_assert(request != NULL);
 	rad_assert(fmt != NULL);
 	rad_assert(out != NULL);
-
-	*out = '\0';
+	rad_assert(*out);
 
 	modules = cf_section_sub_find(request->root->config, "modules");
 	if (!modules) return 0;
@@ -478,7 +476,7 @@ static ssize_t xlat_poke(UNUSED void *instance, REQUEST *request,
 	 *	Copy the old value to the output buffer, that way
 	 *	tests can restore it later, if they need to.
 	 */
-	len = strlcpy(out, cf_pair_value(cp), outlen);
+	len = strlcpy(*out, cf_pair_value(cp), outlen);
 
 	if (cf_pair_replace(mi->cs, cp, q) < 0) {
 		RDEBUG("Failed replacing pair");
@@ -514,7 +512,8 @@ static ssize_t xlat_poke(UNUSED void *instance, REQUEST *request,
 		/*
 		 *	Parse the pair we found, or a default value.
 		 */
-		ret = cf_item_parse(mi->cs, variables[i].name, variables[i].type, data, variables[i].dflt);
+		ret = cf_item_parse(mi->cs, variables[i].name, variables[i].type,
+				    data, variables[i].dflt, variables[i].quote);
 		if (ret < 0) {
 			DEBUG2("Failed inserting new value into module instance data");
 			goto fail;
@@ -775,7 +774,7 @@ int main(int argc, char *argv[])
 	tls_global_init();
 #endif
 
-	if (xlat_register("poke", xlat_poke, NULL, NULL) < 0) {
+	if (xlat_register("poke", xlat_poke, XLAT_DEFAULT_BUF_LEN, NULL, NULL) < 0) {
 		rcode = EXIT_FAILURE;
 		goto finish;
 	}
@@ -874,7 +873,7 @@ int main(int argc, char *argv[])
 		}
 
 
-		if (readvp2(request, &filter_vps, fp, &filedone) < 0) {
+		if (fr_pair_list_afrom_file(request, &filter_vps, fp, &filedone) < 0) {
 			fprintf(stderr, "Failed reading attributes from %s: %s\n",
 				filter_file, fr_strerror());
 			rcode = EXIT_FAILURE;
@@ -907,15 +906,15 @@ int main(int argc, char *argv[])
 	/*
 	 *	Update the list with the response type.
 	 */
-	vp = radius_paircreate(request->reply, &request->reply->vps,
+	vp = radius_pair_create(request->reply, &request->reply->vps,
 			       PW_RESPONSE_PACKET_TYPE, 0);
 	vp->vp_integer = request->reply->code;
 
 	{
 		VALUE_PAIR const *failed[2];
 
-		if (filter_vps && !pairvalidate(failed, filter_vps, request->reply->vps)) {
-			pairvalidate_debug(request, failed);
+		if (filter_vps && !fr_pair_validate(failed, filter_vps, request->reply->vps)) {
+			fr_pair_validate_debug(request, failed);
 			fr_perror("Output file %s does not match attributes in filter %s (%s)",
 				  output_file ? output_file : input_file, filter_file, fr_strerror());
 			rcode = EXIT_FAILURE;

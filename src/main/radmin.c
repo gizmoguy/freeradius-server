@@ -79,8 +79,6 @@ static char const *radmin_version = "radmin version " RADIUSD_VERSION_STRING
  */
 main_config_t main_config;
 
-bool check_config = false;
-
 static bool echo = false;
 static char const *secret = "testing123";
 
@@ -493,7 +491,8 @@ int main(int argc, char **argv)
 			/*
 			 *	Now find the socket name (sigh)
 			 */
-			rcode = cf_item_parse(subcs, "socket", FR_ITEM_POINTER(PW_TYPE_STRING, &file), NULL);
+			rcode = cf_item_parse(subcs, "socket",
+					      FR_ITEM_POINTER(PW_TYPE_STRING, &file), NULL, T_DOUBLE_QUOTED_STRING);
 			if (rcode < 0) {
 				fprintf(stderr, "%s: Failed parsing listen section 'socket'\n", progname);
 				exit(1);
@@ -512,7 +511,8 @@ int main(int argc, char **argv)
 			/*
 			 *	Check UID and GID.
 			 */
-			rcode = cf_item_parse(subcs, "uid", FR_ITEM_POINTER(PW_TYPE_STRING, &uid_name), NULL);
+			rcode = cf_item_parse(subcs, "uid",
+					      FR_ITEM_POINTER(PW_TYPE_STRING, &uid_name), NULL, T_DOUBLE_QUOTED_STRING);
 			if (rcode < 0) {
 				fprintf(stderr, "%s: Failed parsing listen section 'uid'\n", progname);
 				exit(1);
@@ -528,7 +528,8 @@ int main(int argc, char **argv)
 
 			if (uid != pwd->pw_uid) continue;
 
-			rcode = cf_item_parse(subcs, "gid", FR_ITEM_POINTER(PW_TYPE_STRING, &gid_name), NULL);
+			rcode = cf_item_parse(subcs, "gid",
+					      FR_ITEM_POINTER(PW_TYPE_STRING, &gid_name), NULL, T_DOUBLE_QUOTED_STRING);
 			if (rcode < 0) {
 				fprintf(stderr, "%s: Failed parsing listen section 'gid'\n", progname);
 				exit(1);

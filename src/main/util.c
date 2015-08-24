@@ -393,7 +393,7 @@ size_t rad_filename_escape(UNUSED REQUEST *request, char *out, size_t outlen, ch
 		/*
 		 *	Encode multibyte UTF8 chars
 		 */
-		utf8_len = fr_utf8_char((uint8_t const *) in);
+		utf8_len = fr_utf8_char((uint8_t const *) in, -1);
 		if (utf8_len > 1) {
 			if (freespace <= (utf8_len * 3)) break;
 
@@ -1189,7 +1189,7 @@ static void verify_packet(char const *file, int line, REQUEST *request, RADIUS_P
 	if (!packet->vps) return;
 
 #ifdef WITH_VERIFY_PTR
-	fr_pair_verify_list(file, line, packet, packet->vps);
+	fr_pair_list_verify(file, line, packet, packet->vps);
 #endif
 }
 /*
@@ -1206,8 +1206,8 @@ void verify_request(char const *file, int line, REQUEST *request)
 	(void) talloc_get_type_abort(request, REQUEST);
 
 #ifdef WITH_VERIFY_PTR
-	fr_pair_verify_list(file, line, request, request->config);
-	fr_pair_verify_list(file, line, request, request->state);
+	fr_pair_list_verify(file, line, request, request->config);
+	fr_pair_list_verify(file, line, request, request->state);
 #endif
 
 	if (request->packet) verify_packet(file, line, request, request->packet, "request");
@@ -1553,62 +1553,64 @@ int rad_getgid(TALLOC_CTX *ctx, gid_t *out, char const *name)
 
 /** Print uid to a string
  *
- * @note The reason for taking a fixed buffer is pure laziness.
- *	 It means the caller doesn't have to free the string.
- *
- * @note Will always \0 terminate the buffer, even on error.
- *
  * @param ctx TALLOC_CTX for temporary allocations.
- * @param out Where to write the uid string.
- * @param outlen length of output buffer.
  * @param uid to resolve.
  * @return
  *	- 0 on success.
  *	- -1 on failure.
  */
-int rad_prints_uid(TALLOC_CTX *ctx, char *out, size_t outlen, uid_t uid)
+char *rad_asprint_uid(TALLOC_CTX *ctx, uid_t uid)
 {
 	struct passwd *result;
+	char *out;
 
-	rad_assert(outlen > 0);
-
-	*out = '\0';
-
-	if (rad_getpwuid(ctx, &result, uid) < 0) return -1;
-	strlcpy(out, result->pw_name, outlen);
+	if (rad_getpwuid(ctx, &result, uid) < 0) return NULL;
+	out = talloc_strdup(ctx, result->pw_name);
 	talloc_free(result);
 
-	return 0;
+	return out;
 }
 
 /** Print gid to a string
  *
- * @note The reason for taking a fixed buffer is pure laziness.
- *	 It means the caller doesn't have to free the string.
- *
- * @note Will always \0 terminate the buffer, even on error.
- *
  * @param ctx TALLOC_CTX for temporary allocations.
- * @param out Where to write the uid string.
- * @param outlen length of output buffer.
  * @param gid to resolve.
  * @return
  *	- 0 on success.
  *	- -1 on failure.
  */
-int rad_prints_gid(TALLOC_CTX *ctx, char *out, size_t outlen, gid_t gid)
-{
+char *rad_asprint_gid(TALLOC_CTX *ctx, uid_t gid){
 	struct group *result;
+	char *out;
 
-	rad_assert(outlen > 0);
-
-	*out = '\0';
-
-	if (rad_getgrgid(ctx, &result, gid) < 0) return -1;
-	strlcpy(out, result->gr_name, outlen);
+	if (rad_getgrgid(ctx, &result, gid) < 0) return NULL;
+	out = talloc_strdup(ctx, result->gr_name);
 	talloc_free(result);
 
-	return 0;
+	return out;
+}
+
+/** Write a file access error to the fr_strerror buffer, including euid/egid
+ *
+ * @note retrieve error with fr_strerror()
+ *
+ * @param num Usually num, unless the error is returned by the function.
+ */
+void rad_file_error(int num)
+{
+	char const	*error;
+	struct passwd	*user = NULL;
+	struct group	*group = NULL;
+
+	error = fr_syserror(num);
+
+	if (rad_getpwuid(NULL, &user, geteuid()) < 0) goto finish;
+	if (rad_getgrgid(NULL, &group, getegid()) < 0) goto finish;
+
+	fr_strerror_printf("Effective user/group %s:%s: %s", user->pw_name, group->gr_name, error);
+finish:
+	talloc_free(user);
+	talloc_free(group);
 }
 
 #ifdef HAVE_SETUID

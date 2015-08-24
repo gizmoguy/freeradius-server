@@ -86,7 +86,7 @@ int radius_evaluate_tmpl(REQUEST *request, int modreturn, UNUSED int depth, vp_t
 	value_data_t data;
 
 	switch (vpt->type) {
-	case TMPL_TYPE_LITERAL:
+	case TMPL_TYPE_UNPARSED:
 		modcode = fr_str2int(modreturn_table, vpt->name, RLM_MODULE_UNKNOWN);
 		if (modcode != RLM_MODULE_UNKNOWN) {
 			rcode = (modcode == modreturn);
@@ -315,7 +315,7 @@ static int cond_cmp_values(REQUEST *request, fr_cond_t const *c,
 		EVAL_DEBUG("CMP WITH PAIRCOMPARE");
 		rad_assert(map->lhs->type == TMPL_TYPE_ATTR);
 
-		vp = pairalloc(request, map->lhs->tmpl_da);
+		vp = fr_pair_afrom_da(request, map->lhs->tmpl_da);
 		vp->op = c->data.map->op;
 
 		value_data_copy(vp, &vp->data, rhs_type, rhs);
@@ -513,7 +513,7 @@ do {\
 	 *	Expanded types start as strings, then get converted
 	 *	to the type of the attribute or the explicit cast.
 	 */
-	case TMPL_TYPE_LITERAL:
+	case TMPL_TYPE_UNPARSED:
 	case TMPL_TYPE_EXEC:
 	case TMPL_TYPE_XLAT:
 	case TMPL_TYPE_XLAT_STRUCT:
@@ -521,7 +521,7 @@ do {\
 		ssize_t ret;
 		value_data_t data;
 
-		if (map->rhs->type != TMPL_TYPE_LITERAL) {
+		if (map->rhs->type != TMPL_TYPE_UNPARSED) {
 			char *p;
 
 			ret = tmpl_aexpand(request, &p, request, map->rhs, NULL, NULL);
@@ -547,7 +547,7 @@ do {\
 		CAST(rhs);
 
 		rcode = cond_cmp_values(request, c, lhs_type, lhs, rhs_type, rhs);
-		if (map->rhs->type != TMPL_TYPE_LITERAL)talloc_free(data.ptr);
+		if (map->rhs->type != TMPL_TYPE_UNPARSED)talloc_free(data.ptr);
 
 		break;
 	}
@@ -639,7 +639,7 @@ int radius_evaluate_map(REQUEST *request, UNUSED int modreturn, UNUSED int depth
 					      map->lhs->tmpl_data_type, NULL, &map->lhs->tmpl_data_value);
 		break;
 
-	case TMPL_TYPE_LITERAL:
+	case TMPL_TYPE_UNPARSED:
 	case TMPL_TYPE_EXEC:
 	case TMPL_TYPE_XLAT:
 	case TMPL_TYPE_XLAT_STRUCT:
@@ -647,7 +647,7 @@ int radius_evaluate_map(REQUEST *request, UNUSED int modreturn, UNUSED int depth
 		ssize_t ret;
 		value_data_t data;
 
-		if (map->lhs->type != TMPL_TYPE_LITERAL) {
+		if (map->lhs->type != TMPL_TYPE_UNPARSED) {
 			char *p;
 
 			ret = tmpl_aexpand(request, &p, request, map->lhs, NULL, NULL);
@@ -664,7 +664,7 @@ int radius_evaluate_map(REQUEST *request, UNUSED int modreturn, UNUSED int depth
 		rad_assert(data.strvalue);
 
 		rcode = cond_normalise_and_cmp(request, c, PW_TYPE_STRING, NULL, &data);
-		if (map->lhs->type != TMPL_TYPE_LITERAL) talloc_free(data.ptr);
+		if (map->lhs->type != TMPL_TYPE_UNPARSED) talloc_free(data.ptr);
 	}
 		break;
 
@@ -704,7 +704,7 @@ int radius_evaluate_cond(REQUEST *request, int modreturn, int depth, fr_cond_t c
 #ifdef WITH_EVAL_DEBUG
 	char buffer[1024];
 
-	fr_cond_sprint(buffer, sizeof(buffer), c);
+	fr_cond_snprint(buffer, sizeof(buffer), c);
 	EVAL_DEBUG("%s", buffer);
 #endif
 
@@ -764,11 +764,11 @@ int radius_evaluate_cond(REQUEST *request, int modreturn, int depth, fr_cond_t c
 
 
 /*
- *	The pairmove() function in src/lib/valuepair.c does all sorts of
+ *	The fr_pair_list_move() function in src/lib/valuepair.c does all sorts of
  *	extra magic that we don't want here.
  *
  *	FIXME: integrate this with the code calling it, so that we
- *	only paircopy() those attributes that we're really going to
+ *	only fr_pair_list_copy() those attributes that we're really going to
  *	use.
  */
 void radius_pairmove(REQUEST *request, VALUE_PAIR **to, VALUE_PAIR *from, bool do_xlat)
@@ -792,7 +792,7 @@ void radius_pairmove(REQUEST *request, VALUE_PAIR **to, VALUE_PAIR *from, bool d
 	 *
 	 *	It also means that the operators apply ONLY to the
 	 *	attributes in the original list.  With the previous
-	 *	implementation of pairmove(), adding two attributes
+	 *	implementation of fr_pair_list_move(), adding two attributes
 	 *	via "+=" and then "=" would mean that the second one
 	 *	wasn't added, because of the existence of the first
 	 *	one in the "to" list.  This implementation doesn't
@@ -801,7 +801,7 @@ void radius_pairmove(REQUEST *request, VALUE_PAIR **to, VALUE_PAIR *from, bool d
 	 *	Also, the previous implementation did NOT implement
 	 *	"-=" correctly.  If two of the same attributes existed
 	 *	in the "to" list, and you tried to subtract something
-	 *	matching the *second* value, then the pairdelete()
+	 *	matching the *second* value, then the fr_pair_delete_by_num()
 	 *	function was called, and the *all* attributes of that
 	 *	number were deleted.  With this implementation, only
 	 *	the matching attributes are deleted.
@@ -829,7 +829,7 @@ void radius_pairmove(REQUEST *request, VALUE_PAIR **to, VALUE_PAIR *from, bool d
 
 	to_count = 0;
 	ctx = talloc_parent(*to);
-	to_copy = paircopy(ctx, *to);
+	to_copy = fr_pair_list_copy(ctx, *to);
 	for (vp = to_copy; vp != NULL; vp = next) {
 		next = vp->next;
 		to_list[to_count++] = vp;
@@ -884,7 +884,7 @@ void radius_pairmove(REQUEST *request, VALUE_PAIR **to, VALUE_PAIR *from, bool d
 			if (from_list[i]->op == T_OP_SET) {
 				RDEBUG4("::: OVERWRITING %s FROM %d TO %d",
 				       to_list[j]->da->name, i, j);
-				pairfree(&to_list[j]);
+				fr_pair_list_free(&to_list[j]);
 				to_list[j] = from_list[i];
 				from_list[i] = NULL;
 				edited[j] = true;
@@ -949,7 +949,7 @@ void radius_pairmove(REQUEST *request, VALUE_PAIR **to, VALUE_PAIR *from, bool d
 					delete:
 						RDEBUG4("::: DELETING %s FROM %d TO %d",
 						       from_list[i]->da->name, i, j);
-						pairfree(&to_list[j]);
+						fr_pair_list_free(&to_list[j]);
 						to_list[j] = NULL;
 					}
 					break;
@@ -962,7 +962,7 @@ void radius_pairmove(REQUEST *request, VALUE_PAIR **to, VALUE_PAIR *from, bool d
 					if (rcode > 0) {
 						RDEBUG4("::: REPLACING %s FROM %d TO %d",
 						       from_list[i]->da->name, i, j);
-						pairfree(&to_list[j]);
+						fr_pair_list_free(&to_list[j]);
 						to_list[j] = from_list[i];
 						from_list[i] = NULL;
 						edited[j] = true;
@@ -973,7 +973,7 @@ void radius_pairmove(REQUEST *request, VALUE_PAIR **to, VALUE_PAIR *from, bool d
 					if (rcode < 0) {
 						RDEBUG4("::: REPLACING %s FROM %d TO %d",
 						       from_list[i]->da->name, i, j);
-						pairfree(&to_list[j]);
+						fr_pair_list_free(&to_list[j]);
 						to_list[j] = from_list[i];
 						from_list[i] = NULL;
 						edited[j] = true;
@@ -1015,7 +1015,7 @@ void radius_pairmove(REQUEST *request, VALUE_PAIR **to, VALUE_PAIR *from, bool d
 	for (i = 0; i < from_count; i++) {
 		if (!from_list[i]) continue;
 
-		pairfree(&from_list[i]);
+		fr_pair_list_free(&from_list[i]);
 	}
 	talloc_free(from_list);
 
@@ -1024,7 +1024,7 @@ void radius_pairmove(REQUEST *request, VALUE_PAIR **to, VALUE_PAIR *from, bool d
 	/*
 	 *	Re-chain the "to" list.
 	 */
-	pairfree(to);
+	fr_pair_list_free(to);
 	last = to;
 
 	if (to == &request->packet->vps) {

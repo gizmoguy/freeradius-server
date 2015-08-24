@@ -36,6 +36,13 @@
 static const char specials[] = ",+\"\\<>;*=()";
 static const char hextab[] = "0123456789abcdef";
 
+FR_NAME_NUMBER const ldap_supported_extensions[] = {
+	{ "bindname",	LDAP_DEREF_NEVER	},
+	{ "x-bindpw",	LDAP_DEREF_SEARCHING	},
+
+	{  NULL , -1 }
+};
+
 /** Converts "bad" strings into ones which are safe for LDAP
  *
  * @note RFC 4515 says filter strings can only use the @verbatim \<hex><hex> @endverbatim
@@ -758,7 +765,7 @@ ldap_rcode_t rlm_ldap_bind(rlm_ldap_t const *inst, REQUEST *request, ldap_handle
 	rad_assert(*pconn && (*pconn)->handle);
 	rad_assert(!retry || inst->pool);
 
-#ifndef HAVE_LDAP_SASL_INTERACTIVE_BIND
+#ifndef WITH_SASL
 	rad_assert(!sasl->mech);
 #endif
 
@@ -771,9 +778,9 @@ ldap_rcode_t rlm_ldap_bind(rlm_ldap_t const *inst, REQUEST *request, ldap_handle
 	 *	For sanity, for when no connections are viable,
 	 *	and we can't make a new one.
 	 */
-	num = retry ? fr_connection_pool_get_num(inst->pool) : 0;
+	num = retry ? fr_connection_pool_state(inst->pool)->num : 0;
 	for (i = num; i >= 0; i--) {
-#ifdef HAVE_LDAP_SASL_INTERACTIVE_BIND
+#ifdef WITH_SASL
 		if (sasl && sasl->mech) {
 			status = rlm_ldap_sasl_interactive(inst, request, *pconn, dn, password, sasl,
 							   serverctrls, clientctrls, &error, &extra);
@@ -893,7 +900,10 @@ ldap_rcode_t rlm_ldap_search(LDAPMessage **result, rlm_ldap_t const *inst, REQUE
 	LDAPControl	*our_serverctrls[LDAP_MAX_CONTROLS];
 	LDAPControl	*our_clientctrls[LDAP_MAX_CONTROLS];
 
-	rlm_ldap_control_merge(our_serverctrls, our_clientctrls, *pconn, serverctrls, clientctrls);
+	rlm_ldap_control_merge(our_serverctrls, our_clientctrls,
+			       sizeof(our_serverctrls) / sizeof(*our_serverctrls),
+			       sizeof(our_clientctrls) / sizeof(*our_clientctrls),
+			       *pconn, serverctrls, clientctrls);
 
 	rad_assert(*pconn && (*pconn)->handle);
 
@@ -939,7 +949,7 @@ ldap_rcode_t rlm_ldap_search(LDAPMessage **result, rlm_ldap_t const *inst, REQUE
 	 *	For sanity, for when no connections are viable,
 	 *	and we can't make a new one.
 	 */
-	for (i = fr_connection_pool_get_num(inst->pool); i >= 0; i--) {
+	for (i = fr_connection_pool_state(inst->pool)->num; i >= 0; i--) {
 		(void) ldap_search_ext((*pconn)->handle, dn, scope, filter, search_attrs,
 				       0, our_serverctrls, our_clientctrls, &tv, 0, &msgid);
 
@@ -1051,7 +1061,10 @@ ldap_rcode_t rlm_ldap_modify(rlm_ldap_t const *inst, REQUEST *request, ldap_hand
 	LDAPControl	*our_serverctrls[LDAP_MAX_CONTROLS];
 	LDAPControl	*our_clientctrls[LDAP_MAX_CONTROLS];
 
-	rlm_ldap_control_merge(our_serverctrls, our_clientctrls, *pconn, serverctrls, clientctrls);
+	rlm_ldap_control_merge(our_serverctrls, our_clientctrls,
+			       sizeof(our_serverctrls) / sizeof(*our_serverctrls),
+			       sizeof(our_clientctrls) / sizeof(*our_clientctrls),
+			       *pconn, serverctrls, clientctrls);
 
 	rad_assert(*pconn && (*pconn)->handle);
 
@@ -1075,7 +1088,7 @@ ldap_rcode_t rlm_ldap_modify(rlm_ldap_t const *inst, REQUEST *request, ldap_hand
 	 *	For sanity, for when no connections are viable,
 	 *	and we can't make a new one.
 	 */
-	for (i = fr_connection_pool_get_num(inst->pool); i >= 0; i--) {
+	for (i = fr_connection_pool_state(inst->pool)->num; i >= 0; i--) {
 		RDEBUG2("Modifying object with DN \"%s\"", dn);
 		(void) ldap_modify_ext((*pconn)->handle, dn, mods, our_serverctrls, our_clientctrls, &msgid);
 
@@ -1172,7 +1185,7 @@ char const *rlm_ldap_find_user(rlm_ldap_t const *inst, REQUEST *request, ldap_ha
 	 *	If the caller isn't looking for the result we can just return the current userdn value.
 	 */
 	if (!force) {
-		vp = pairfind(request->config, PW_LDAP_USERDN, 0, TAG_ANY);
+		vp = fr_pair_find_by_num(request->config, PW_LDAP_USERDN, 0, TAG_ANY);
 		if (vp) {
 			RDEBUG("Using user DN from request \"%s\"", vp->vp_strvalue);
 			*rcode = RLM_MODULE_OK;
@@ -1247,7 +1260,7 @@ char const *rlm_ldap_find_user(rlm_ldap_t const *inst, REQUEST *request, ldap_ha
 			RINDENT();
 			for (entry = ldap_first_entry((*pconn)->handle, *result);
 			     entry;
-			     entry = ldap_next_entry((*pconn)->handle, NULL)) {
+			     entry = ldap_next_entry((*pconn)->handle, entry)) {
 				dn = ldap_get_dn((*pconn)->handle, entry);
 				REDEBUG("%s", dn);
 				ldap_memfree(dn);
@@ -1277,7 +1290,7 @@ char const *rlm_ldap_find_user(rlm_ldap_t const *inst, REQUEST *request, ldap_ha
 	rlm_ldap_normalise_dn(dn, dn);
 
 	/*
-	 *	We can't use pairmake here to copy the value into the
+	 *	We can't use fr_pair_make here to copy the value into the
 	 *	attribute, as the dn must be copied into the attribute
 	 *	verbatim (without de-escaping).
 	 *
@@ -1285,9 +1298,9 @@ char const *rlm_ldap_find_user(rlm_ldap_t const *inst, REQUEST *request, ldap_ha
 	 *	we pass the string back to libldap we must not alter it.
 	 */
 	RDEBUG("User object found at DN \"%s\"", dn);
-	vp = pairmake(request, &request->config, "LDAP-UserDN", NULL, T_OP_EQ);
+	vp = fr_pair_make(request, &request->config, "LDAP-UserDN", NULL, T_OP_EQ);
 	if (vp) {
-		pairstrcpy(vp, dn);
+		fr_pair_value_strcpy(vp, dn);
 		*rcode = RLM_MODULE_OK;
 	}
 
@@ -1356,11 +1369,11 @@ void rlm_ldap_check_reply(rlm_ldap_t const *inst, REQUEST *request)
 	*	an LDAP attribute and a password reference attribute in the control list.
 	*/
 	if (inst->expect_password && (rad_debug_lvl > 1)) {
-		if (!pairfind(request->config, PW_CLEARTEXT_PASSWORD, 0, TAG_ANY) &&
-		    !pairfind(request->config, PW_NT_PASSWORD, 0, TAG_ANY) &&
-		    !pairfind(request->config, PW_USER_PASSWORD, 0, TAG_ANY) &&
-		    !pairfind(request->config, PW_PASSWORD_WITH_HEADER, 0, TAG_ANY) &&
-		    !pairfind(request->config, PW_CRYPT_PASSWORD, 0, TAG_ANY)) {
+		if (!fr_pair_find_by_num(request->config, PW_CLEARTEXT_PASSWORD, 0, TAG_ANY) &&
+		    !fr_pair_find_by_num(request->config, PW_NT_PASSWORD, 0, TAG_ANY) &&
+		    !fr_pair_find_by_num(request->config, PW_USER_PASSWORD, 0, TAG_ANY) &&
+		    !fr_pair_find_by_num(request->config, PW_PASSWORD_WITH_HEADER, 0, TAG_ANY) &&
+		    !fr_pair_find_by_num(request->config, PW_CRYPT_PASSWORD, 0, TAG_ANY)) {
 			RWDEBUG("No \"known good\" password added. Ensure the admin user has permission to "
 				"read the password attribute");
 			RWDEBUG("PAP authentication will *NOT* work with Active Directory (if that is what you "
@@ -1383,25 +1396,98 @@ void rlm_ldap_check_reply(rlm_ldap_t const *inst, REQUEST *request)
 static int rlm_ldap_rebind(LDAP *handle, LDAP_CONST char *url, UNUSED ber_tag_t request, UNUSED ber_int_t msgid,
 			   void *ctx)
 {
-	ldap_rcode_t status;
-	ldap_handle_t *conn = talloc_get_type_abort(ctx, ldap_handle_t);
+	ldap_rcode_t	status;
+	ldap_handle_t	*conn = talloc_get_type_abort(ctx, ldap_handle_t);
+	rlm_ldap_t	*inst = conn->inst;
 
-	int ldap_errno;
+	char const	*admin_identity = NULL;
+	char const	*admin_password = NULL;
+
+	int		ldap_errno;
 
 	conn->referred = true;
 	conn->rebound = true;	/* not really, but oh well... */
 	rad_assert(handle == conn->handle);
 
-	DEBUG("rlm_ldap (%s): Rebinding to URL %s", conn->inst->name, url);
+	DEBUG("rlm_ldap (%s): Rebinding to URL %s", inst->name, url);
 
-	status = rlm_ldap_bind(conn->inst, NULL, &conn, conn->inst->admin_identity, conn->inst->admin_password,
-			       &(conn->inst->admin_sasl), false, NULL, NULL);
+#  ifdef HAVE_LDAP_URL_PARSE
+	/*
+	 *	Use bindname and x-bindpw extensions to get the bind credentials
+	 *	SASL mech is inherited from the module that defined the connection
+	 *	pool.
+	 */
+	if (!inst->use_referral_credentials) {
+		LDAPURLDesc	*ldap_url;
+		int		ret;
+		char		**ext;
+
+		ret = ldap_url_parse(url, &ldap_url);
+		if (ret != LDAP_SUCCESS) {
+			ERROR("rlm_ldap (%s): Failed parsing LDAP URL \"%s\": %s",
+			      inst->name, url, ldap_err2string(ret));
+			return -1;
+		}
+
+		for (ext = ldap_url->lud_exts; *ext; ext++) {
+			char const *p;
+			bool critical = false;
+
+			p = *ext;
+
+			if (*p == '!') {
+				critical = true;
+				p++;
+			}
+
+			/*
+			 *	LDAP Parse URL unescapes the extensions for us
+			 */
+			switch (fr_substr2int(ldap_supported_extensions, p, LDAP_EXT_UNSUPPORTED, -1)) {
+			case LDAP_EXT_BINDNAME:
+				p = strchr(p, '=');
+				if (!p) {
+				bad_ext:
+					ERROR("rlm_ldap (%s): Failed parsing extension \"%s\": "
+					      "No attribute/value delimiter '='", inst->name, *ext);
+					ldap_free_urldesc(ldap_url);
+					return LDAP_OTHER;
+				}
+				admin_identity = p + 1;
+				break;
+
+			case LDAP_EXT_BINDPW:
+				p = strchr(p, '=');
+				if (!p) goto bad_ext;
+				admin_password = p + 1;
+				break;
+
+			default:
+				if (critical) {
+					ERROR("rlm_ldap (%s): Failed parsing critical extension \"%s\": "
+					      "Not supported by rlm_ldap", inst->name, *ext);
+					ldap_free_urldesc(ldap_url);
+					return LDAP_OTHER;
+				}
+				DEBUG2("rlm_ldap (%s): Skipping unsupported extension \"%s\"", inst->name, *ext);
+				continue;
+			}
+		}
+		ldap_free_urldesc(ldap_url);
+	} else
+#  endif
+	{
+		admin_identity = inst->admin_identity;
+		admin_password = inst->admin_password;
+	}
+
+	status = rlm_ldap_bind(inst, NULL, &conn, admin_identity, admin_password,
+			       &inst->admin_sasl, false, NULL, NULL);
 	if (status != LDAP_PROC_SUCCESS) {
 		ldap_get_option(handle, LDAP_OPT_ERROR_NUMBER, &ldap_errno);
 
 		return ldap_errno;
 	}
-
 
 	return LDAP_SUCCESS;
 }
@@ -1422,7 +1508,10 @@ static int _mod_conn_free(ldap_handle_t *conn)
 		LDAPControl	*our_serverctrls[LDAP_MAX_CONTROLS];
 		LDAPControl	*our_clientctrls[LDAP_MAX_CONTROLS];
 
-		rlm_ldap_control_merge(our_serverctrls, our_clientctrls, conn, NULL, NULL);
+		rlm_ldap_control_merge(our_serverctrls, our_clientctrls,
+				       sizeof(our_serverctrls) / sizeof(*our_serverctrls),
+				       sizeof(our_clientctrls) / sizeof(*our_clientctrls),
+				       conn, NULL, NULL);
 
 		DEBUG3("rlm_ldap: Closing libldap handle %p", conn->handle);
 		ldap_unbind_ext_s(conn->handle, our_serverctrls, our_clientctrls);
@@ -1440,12 +1529,11 @@ static int _mod_conn_free(ldap_handle_t *conn)
  *
  * Create a new ldap connection and allocate memory for a new rlm_handle_t
  */
-void *mod_conn_create(TALLOC_CTX *ctx, void *instance)
+void *mod_conn_create(TALLOC_CTX *ctx, void *instance, struct timeval const *timeout)
 {
 	ldap_rcode_t status;
 
 	int ldap_errno, ldap_version;
-	struct timeval tv;
 
 	rlm_ldap_t *inst = instance;
 	ldap_handle_t *conn;
@@ -1527,12 +1615,7 @@ void *mod_conn_create(TALLOC_CTX *ctx, void *instance)
 	}
 
 #ifdef LDAP_OPT_NETWORK_TIMEOUT
-	if (inst->net_timeout) {
-		memset(&tv, 0, sizeof(tv));
-		tv.tv_sec = inst->net_timeout;
-
-		do_ldap_option(LDAP_OPT_NETWORK_TIMEOUT, "net_timeout", &tv);
-	}
+	do_ldap_option(LDAP_OPT_NETWORK_TIMEOUT, "pool.connect_timeout", &timeout);
 #endif
 
 	do_ldap_option(LDAP_OPT_TIMELIMIT, "srv_timelimit", &(inst->srv_timelimit));

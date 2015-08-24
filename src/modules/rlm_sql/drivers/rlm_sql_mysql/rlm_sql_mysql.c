@@ -83,25 +83,23 @@ typedef struct rlm_sql_mysql_config {
 } rlm_sql_mysql_config_t;
 
 static CONF_PARSER tls_config[] = {
-	{ "ca_file", FR_CONF_OFFSET(PW_TYPE_FILE_INPUT, rlm_sql_mysql_config_t, tls_ca_file), NULL },
-	{ "ca_path", FR_CONF_OFFSET(PW_TYPE_FILE_INPUT, rlm_sql_mysql_config_t, tls_ca_path), NULL },
-	{ "certificate_file", FR_CONF_OFFSET(PW_TYPE_FILE_INPUT, rlm_sql_mysql_config_t, tls_certificate_file), NULL },
-	{ "private_key_file", FR_CONF_OFFSET(PW_TYPE_FILE_INPUT, rlm_sql_mysql_config_t, tls_private_key_file), NULL },
+	{ FR_CONF_OFFSET("ca_file", PW_TYPE_FILE_INPUT, rlm_sql_mysql_config_t, tls_ca_file) },
+	{ FR_CONF_OFFSET("ca_path", PW_TYPE_FILE_INPUT, rlm_sql_mysql_config_t, tls_ca_path) },
+	{ FR_CONF_OFFSET("certificate_file", PW_TYPE_FILE_INPUT, rlm_sql_mysql_config_t, tls_certificate_file) },
+	{ FR_CONF_OFFSET("private_key_file", PW_TYPE_FILE_INPUT, rlm_sql_mysql_config_t, tls_private_key_file) },
 
 	/*
 	 *	MySQL Specific TLS attributes
 	 */
-	{ "cipher", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_sql_mysql_config_t, tls_cipher), NULL },
-
-	{ NULL, -1, 0, NULL, NULL }
+	{ FR_CONF_OFFSET("cipher", PW_TYPE_STRING, rlm_sql_mysql_config_t, tls_cipher) },
+	CONF_PARSER_TERMINATOR
 };
 
 static const CONF_PARSER driver_config[] = {
-	{ "tls", FR_CONF_POINTER(PW_TYPE_SUBSECTION, NULL), (void const *) tls_config },
+	{ FR_CONF_POINTER("tls", PW_TYPE_SUBSECTION, NULL), .dflt = (void const *) tls_config },
 
-	{ "warnings", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_sql_mysql_config_t, warnings_str), "auto" },
-
-	{NULL, -1, 0, NULL, NULL}
+	{ FR_CONF_OFFSET("warnings", PW_TYPE_STRING, rlm_sql_mysql_config_t, warnings_str), .dflt = "auto" },
+	CONF_PARSER_TERMINATOR
 };
 
 /* Prototypes */
@@ -164,10 +162,11 @@ static int mod_instantiate(CONF_SECTION *conf, rlm_sql_config_t *config)
 	return 0;
 }
 
-static sql_rcode_t sql_socket_init(rlm_sql_handle_t *handle, rlm_sql_config_t *config)
+static sql_rcode_t sql_socket_init(rlm_sql_handle_t *handle, rlm_sql_config_t *config, struct timeval const *timeout)
 {
 	rlm_sql_mysql_conn_t *conn;
 	rlm_sql_mysql_config_t *driver = config->driver;
+	unsigned int connect_timeout = timeout->tv_usec;
 	unsigned long sql_flags;
 
 	MEM(conn = handle->conn = talloc_zero(handle, rlm_sql_mysql_conn_t));
@@ -203,8 +202,9 @@ static sql_rcode_t sql_socket_init(rlm_sql_handle_t *handle, rlm_sql_config_t *c
 #endif
 
 #if (MYSQL_VERSION_ID >= 50000)
+	mysql_options(&(conn->db), MYSQL_OPT_CONNECT_TIMEOUT, &connect_timeout);
+
 	if (config->query_timeout) {
-		unsigned int connect_timeout = config->query_timeout;
 		unsigned int read_timeout = config->query_timeout;
 		unsigned int write_timeout = config->query_timeout;
 
@@ -226,7 +226,6 @@ static sql_rcode_t sql_socket_init(rlm_sql_handle_t *handle, rlm_sql_config_t *c
 		 *	Connect timeout is actually connect timeout (according to the
 		 *	docs) there are no automatic retries.
 		 */
-		mysql_options(&(conn->db), MYSQL_OPT_CONNECT_TIMEOUT, &connect_timeout);
 		mysql_options(&(conn->db), MYSQL_OPT_READ_TIMEOUT, &read_timeout);
 		mysql_options(&(conn->db), MYSQL_OPT_WRITE_TIMEOUT, &write_timeout);
 	}

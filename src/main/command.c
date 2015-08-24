@@ -101,12 +101,12 @@ typedef struct fr_command_socket_t {
 } fr_command_socket_t;
 
 static const CONF_PARSER command_config[] = {
-	{ "socket", FR_CONF_OFFSET(PW_TYPE_STRING, fr_command_socket_t, path), "${run_dir}/radiusd.sock" },
-	{ "uid", FR_CONF_OFFSET(PW_TYPE_STRING, fr_command_socket_t, uid_name), NULL },
-	{ "gid", FR_CONF_OFFSET(PW_TYPE_STRING, fr_command_socket_t, gid_name), NULL },
-	{ "mode", FR_CONF_OFFSET(PW_TYPE_STRING, fr_command_socket_t, mode_name), NULL },
-	{ "peercred", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, fr_command_socket_t, peercred), "yes" },
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	{ FR_CONF_OFFSET("socket", PW_TYPE_STRING, fr_command_socket_t, path), .dflt = "${run_dir}/radiusd.sock" },
+	{ FR_CONF_OFFSET("uid", PW_TYPE_STRING, fr_command_socket_t, uid_name) },
+	{ FR_CONF_OFFSET("gid", PW_TYPE_STRING, fr_command_socket_t, gid_name) },
+	{ FR_CONF_OFFSET("mode", PW_TYPE_STRING, fr_command_socket_t, mode_name) },
+	{ FR_CONF_OFFSET("peercred", PW_TYPE_BOOLEAN, fr_command_socket_t, peercred), .dflt = "yes" },
+	CONF_PARSER_TERMINATOR
 };
 
 static FR_NAME_NUMBER mode_names[] = {
@@ -1350,7 +1350,7 @@ static int command_show_debug_condition(rad_listen_t *listener,
 		return CMD_OK;
 	}
 
-	fr_cond_sprint(buffer, sizeof(buffer), debug_condition);
+	fr_cond_snprint(buffer, sizeof(buffer), debug_condition);
 
 	cprintf(listener, "%s\n", buffer);
 	return CMD_OK;
@@ -1623,7 +1623,7 @@ static int null_socket_send(UNUSED rad_listen_t *listener, REQUEST *request)
 		for (vp = fr_cursor_init(&cursor, &request->reply->vps);
 		     vp;
 		     vp = fr_cursor_next(&cursor)) {
-			vp_prints(buffer, sizeof(buffer), vp);
+			fr_pair_snprint(buffer, sizeof(buffer), vp);
 			fprintf(fp, "%s\n", buffer);
 			RDEBUG("%s", buffer);
 		}
@@ -1772,7 +1772,7 @@ static int command_inject_file(rad_listen_t *listener, int argc, char *argv[])
 		return 0;
 	}
 
-	ret = readvp2(NULL, &vp, fp, &filedone);
+	ret = fr_pair_list_afrom_file(NULL, &vp, fp, &filedone);
 	fclose(fp);
 	if (ret < 0) {
 		cprintf_error(listener, "Failed reading attributes from %s: %s\n",
@@ -1826,7 +1826,7 @@ static int command_inject_file(rad_listen_t *listener, int argc, char *argv[])
 		for (vp = fr_cursor_init(&cursor, &packet->vps);
 		     vp;
 		     vp = fr_cursor_next(&cursor)) {
-			vp_prints(buffer, sizeof(buffer), vp);
+			fr_pair_snprint(buffer, sizeof(buffer), vp);
 			DEBUG("\t%s", buffer);
 		}
 
@@ -2050,7 +2050,7 @@ static int command_set_module_config(rad_listen_t *listener, int argc, char *arg
 	 */
 	cf_pair_replace(mi->cs, cp, argv[2]);
 
-	rcode = cf_item_parse(mi->cs, argv[1], variables[i].type, data, argv[2]);
+	rcode = cf_item_parse(mi->cs, argv[1], variables[i].type, data, argv[2], T_DOUBLE_QUOTED_STRING);
 	if (rcode < 0) {
 		cprintf_error(listener, "Failed to parse value\n");
 		return 0;
