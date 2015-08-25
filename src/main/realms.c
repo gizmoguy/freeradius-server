@@ -110,8 +110,7 @@ static const CONF_PARSER proxy_config[] = {
 	{ "dead_time", FR_CONF_OFFSET(PW_TYPE_INTEGER, realm_config_t, dead_time), STRINGIFY(DEAD_TIME)  },
 
 	{ "wake_all_if_all_dead", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, realm_config_t, wake_all_if_all_dead), "no" },
-
-	{ NULL, -1, 0, NULL, NULL }
+	CONF_PARSER_TERMINATOR
 };
 #endif
 
@@ -290,8 +289,7 @@ static CONF_PARSER limit_config[] = {
 	{ "max_requests", FR_CONF_OFFSET(PW_TYPE_INTEGER, home_server_t, limit.max_requests), "0" },
 	{ "lifetime", FR_CONF_OFFSET(PW_TYPE_INTEGER, home_server_t, limit.lifetime), "0" },
 	{ "idle_timeout", FR_CONF_OFFSET(PW_TYPE_INTEGER, home_server_t, limit.idle_timeout), "0" },
-
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	CONF_PARSER_TERMINATOR
 };
 
 #ifdef WITH_COA
@@ -300,8 +298,7 @@ static CONF_PARSER home_server_coa[] = {
 	{ "mrt",  FR_CONF_OFFSET(PW_TYPE_INTEGER, home_server_t, coa_mrt), STRINGIFY(16) },
 	{ "mrc",  FR_CONF_OFFSET(PW_TYPE_INTEGER, home_server_t, coa_mrc), STRINGIFY(5) },
 	{ "mrd",  FR_CONF_OFFSET(PW_TYPE_INTEGER, home_server_t, coa_mrd), STRINGIFY(30) },
-
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	CONF_PARSER_TERMINATOR
 };
 #endif
 
@@ -354,7 +351,7 @@ static CONF_PARSER home_server_config[] = {
 	{ "coa", FR_CONF_POINTER(PW_TYPE_SUBSECTION, NULL), (void const *) home_server_coa },
 #endif
 
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	CONF_PARSER_TERMINATOR
 };
 
 
@@ -578,6 +575,7 @@ home_server_t *home_server_afrom_cs(TALLOC_CTX *ctx, realm_config_t *rc, CONF_SE
 	home->log_name = talloc_typed_strdup(home, home->name);
 	home->cs = cs;
 	home->state = HOME_STATE_UNKNOWN;
+	home->proto = IPPROTO_UDP;
 
 	/*
 	 *	Parse the configuration into the home server
@@ -702,11 +700,11 @@ home_server_t *home_server_afrom_cs(TALLOC_CTX *ctx, realm_config_t *rc, CONF_SE
  	}
 
 	{
-		int type = IPPROTO_UDP;
+		int proto = IPPROTO_UDP;
 
-		if (home->proto_str) type = fr_str2int(home_proto, home->proto_str, -1);
+		if (home->proto_str) proto = fr_str2int(home_proto, home->proto_str, -1);
 
-		switch (type) {
+		switch (proto) {
 		case IPPROTO_UDP:
 			home_servers_udp = true;
 			break;
@@ -728,7 +726,7 @@ home_server_t *home_server_afrom_cs(TALLOC_CTX *ctx, realm_config_t *rc, CONF_SE
 			goto error;
 		}
 
-		home->proto = type;
+		home->proto = proto;
 	}
 
 	if (!home->server && rbtree_finddata(home_servers_byaddr, home)) {
@@ -2312,7 +2310,7 @@ void home_server_update_request(home_server_t *home, REQUEST *request)
 		 *	attribute is the one hacked through
 		 *	the 'hints' file.
 		 */
-		request->proxy->vps = paircopy(request->proxy,
+		request->proxy->vps = fr_pair_list_copy(request->proxy,
 					       request->packet->vps);
 	}
 
@@ -2333,8 +2331,8 @@ void home_server_update_request(home_server_t *home, REQUEST *request)
 	 *	unless one already exists.
 	 */
 	if ((request->packet->code == PW_CODE_ACCESS_REQUEST) &&
-	    !pairfind(request->proxy->vps, PW_MESSAGE_AUTHENTICATOR, 0, TAG_ANY)) {
-		pairmake(request->proxy, &request->proxy->vps,
+	    !fr_pair_find_by_num(request->proxy->vps, PW_MESSAGE_AUTHENTICATOR, 0, TAG_ANY)) {
+		fr_pair_make(request->proxy, &request->proxy->vps,
 			 "Message-Authenticator", "0x00",
 			 T_OP_SET);
 	}
@@ -2405,7 +2403,7 @@ home_server_t *home_server_ldb(char const *realmname,
 		break;
 
 	case HOME_POOL_KEYED_BALANCE:
-		if ((vp = pairfind(request->config, PW_LOAD_BALANCE_KEY, 0, TAG_ANY)) != NULL) {
+		if ((vp = fr_pair_find_by_num(request->config, PW_LOAD_BALANCE_KEY, 0, TAG_ANY)) != NULL) {
 			hash = fr_hash(vp->vp_strvalue, vp->vp_length);
 			start = hash % pool->num_home_servers;
 			break;

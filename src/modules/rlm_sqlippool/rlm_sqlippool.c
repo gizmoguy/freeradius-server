@@ -100,8 +100,7 @@ static CONF_PARSER message_config[] = {
 	{ "clear", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_XLAT, rlm_sqlippool_t, log_clear), NULL },
 	{ "failed", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_XLAT, rlm_sqlippool_t, log_failed), NULL },
 	{ "nopool", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_XLAT, rlm_sqlippool_t, log_nopool), NULL },
-
-	{ NULL, -1, 0, NULL, NULL }
+	CONF_PARSER_TERMINATOR
 };
 
 /*
@@ -199,8 +198,7 @@ static CONF_PARSER module_config[] = {
 	{ "off_commit", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_XLAT, rlm_sqlippool_t, off_commit), "COMMIT" },
 
 	{ "messages", FR_CONF_POINTER(PW_TYPE_SUBSECTION, NULL), (void const *) message_config },
-
-	{ NULL, -1, 0, NULL, NULL }
+	CONF_PARSER_TERMINATOR
 };
 
 /*
@@ -454,7 +452,7 @@ static int do_logging(REQUEST *request, char const *str, int rcode)
 		return rcode;
 	}
 
-	pairmake_config("Module-Success-Message", expanded, T_OP_SET);
+	pair_make_config("Module-Success-Message", expanded, T_OP_SET);
 
 	talloc_free(expanded);
 
@@ -477,13 +475,13 @@ static rlm_rcode_t CC_HINT(nonnull) mod_post_auth(void *instance, REQUEST *reque
 	/*
 	 *	If there is a Framed-IP-Address attribute in the reply do nothing
 	 */
-	if (pairfind(request->reply->vps, inst->framed_ip_address, 0, TAG_ANY) != NULL) {
+	if (fr_pair_find_by_num(request->reply->vps, inst->framed_ip_address, 0, TAG_ANY) != NULL) {
 		RDEBUG("Framed-IP-Address already exists");
 
 		return do_logging(request, inst->log_exists, RLM_MODULE_NOOP);
 	}
 
-	if (pairfind(request->config, PW_POOL_NAME, 0, TAG_ANY) == NULL) {
+	if (fr_pair_find_by_num(request->config, PW_POOL_NAME, 0, TAG_ANY) == NULL) {
 		RDEBUG("No Pool-Name defined");
 
 		return do_logging(request, inst->log_nopool, RLM_MODULE_NOOP);
@@ -578,8 +576,8 @@ static rlm_rcode_t CC_HINT(nonnull) mod_post_auth(void *instance, REQUEST *reque
 	 *	See if we can create the VP from the returned data.  If not,
 	 *	error out.  If so, add it to the list.
 	 */
-	vp = paircreate(request->reply, inst->framed_ip_address, 0);
-	if (pairparsevalue(vp, allocation, allocation_len) < 0) {
+	vp = fr_pair_afrom_num(request->reply, inst->framed_ip_address, 0);
+	if (fr_pair_value_from_str(vp, allocation, allocation_len) < 0) {
 		DO(allocate_commit);
 
 		RDEBUG("Invalid IP number [%s] returned from instbase query.", allocation);
@@ -588,7 +586,7 @@ static rlm_rcode_t CC_HINT(nonnull) mod_post_auth(void *instance, REQUEST *reque
 	}
 
 	RDEBUG("Allocated IP %s", allocation);
-	pairadd(&request->reply->vps, vp);
+	fr_pair_add(&request->reply->vps, vp);
 
 	/*
 	 *	UPDATE
@@ -665,7 +663,7 @@ static rlm_rcode_t CC_HINT(nonnull) mod_accounting(void *instance, REQUEST *requ
 	rlm_sqlippool_t *inst = (rlm_sqlippool_t *) instance;
 	rlm_sql_handle_t *handle;
 
-	vp = pairfind(request->packet->vps, PW_ACCT_STATUS_TYPE, 0, TAG_ANY);
+	vp = fr_pair_find_by_num(request->packet->vps, PW_ACCT_STATUS_TYPE, 0, TAG_ANY);
 	if (!vp) {
 		RDEBUG("Could not find account status type in packet");
 		return RLM_MODULE_NOOP;

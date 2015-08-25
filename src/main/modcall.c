@@ -710,7 +710,7 @@ redo:
 		 *	If we don't remove the request data, something could call
 		 *	the xlat outside of a foreach loop and trigger a segv.
 		 */
-		pairfree(&vps);
+		fr_pair_list_free(&vps);
 		request_data_get(request, (void *)radius_get_vp, foreach_depth);
 
 		rad_assert(next != NULL);
@@ -1595,7 +1595,7 @@ int modcall_fixup_update(vp_map_t *map, UNUSED void *ctx)
 
 		case T_OP_SET:
 			if (map->rhs->type == TMPL_TYPE_EXEC) {
-				WARN("%s[%d] Please change ':=' to '=' for list assignment",
+				WARN("%s[%d]: Please change ':=' to '=' for list assignment",
 				     cf_pair_filename(cp), cf_pair_lineno(cp));
 			}
 
@@ -1644,7 +1644,8 @@ int modcall_fixup_update(vp_map_t *map, UNUSED void *ctx)
 
 		} else {
 			/*
-			 *
+			 *	RHS is hex, try to parse it as
+			 *	type-specific data.
 			 */
 			if (map->lhs->auto_converted &&
 			    (map->rhs->name[0] == '0') && (map->rhs->name[1] == 'x') &&
@@ -3033,13 +3034,13 @@ static bool pass2_xlat_compile(CONF_ITEM const *ci, vp_tmpl_t **pvpt, bool conve
 			if (cf_item_is_pair(ci)) {
 				CONF_PAIR *cp = cf_item_to_pair(ci);
 
-				WARN("%s[%d] Please change %%{%s} to &%s",
+				WARN("%s[%d]: Please change \"%%{%s}\" to &%s",
 				       cf_pair_filename(cp), cf_pair_lineno(cp),
 				       attr->name, attr->name);
 			} else {
 				CONF_SECTION *cs = cf_item_to_section(ci);
 
-				WARN("%s[%d] Please change %%{%s} to &%s",
+				WARN("%s[%d]: Please change \"%%{%s}\" to &%s",
 				       cf_section_filename(cs), cf_section_lineno(cs),
 				       attr->name, attr->name);
 			}
@@ -3124,11 +3125,27 @@ static bool pass2_fixup_undefined(CONF_ITEM const *ci, vp_tmpl_t *vpt)
 	return true;
 }
 
-static bool pass2_callback(UNUSED void *ctx, fr_cond_t *c)
+static bool pass2_callback(void *ctx, fr_cond_t *c)
 {
 	vp_map_t *map;
 	vp_tmpl_t *vpt;
 
+	/*
+	 *	These don't get optimized.
+	 */
+	if ((c->type == COND_TYPE_TRUE) ||
+	    (c->type == COND_TYPE_FALSE)) {
+		return true;
+	}
+
+	/*
+	 *	Call children.
+	 */
+	if (c->type == COND_TYPE_CHILD) return pass2_callback(ctx, c->data.child);
+
+	/*
+	 *	A few simple checks here.
+	 */
 	if (c->type == COND_TYPE_EXISTS) {
 		if (c->data.vpt->type == TMPL_TYPE_XLAT) {
 			return pass2_xlat_compile(c->ci, &c->data.vpt, true, NULL);
@@ -3148,17 +3165,9 @@ static bool pass2_callback(UNUSED void *ctx, fr_cond_t *c)
 	}
 
 	/*
-	 *	Maps have a paircompare fixup applied to them.
-	 *	Others get ignored.
+	 *	And tons of complicated checks.
 	 */
-	if (c->pass2_fixup == PASS2_FIXUP_NONE) {
-		if (c->type == COND_TYPE_MAP) {
-			map = c->data.map;
-			goto check_paircmp;
-		}
-
-		return true;
-	}
+	rad_assert(c->type == COND_TYPE_MAP);
 
 	map = c->data.map;	/* shorter */
 
@@ -3196,7 +3205,6 @@ static bool pass2_callback(UNUSED void *ctx, fr_cond_t *c)
 		c->pass2_fixup = PASS2_FIXUP_NONE;
 	}
 
-check_paircmp:
 	/*
 	 *	Just in case someone adds a new fixup later.
 	 */
@@ -3208,13 +3216,88 @@ check_paircmp:
 	 */
 	if (map->lhs->type == TMPL_TYPE_XLAT) {
 		/*
-		 *	Don't compile the LHS to an attribute
-		 *	reference for now.  When we do that, we've got
-		 *	to check the RHS for type-specific data, and
-		 *	parse it to a TMPL_TYPE_DATA.
+		 *	Compile the LHS to an attribute reference only
+		 *	if the RHS is a literal.
+		 *
+		 *	@todo v3.1: allow anything anywhere.
 		 */
-		if (!pass2_xlat_compile(map->ci, &map->lhs, false, NULL)) {
-			return false;
+		if (map->rhs->type != TMPL_TYPE_LITERAL) {
+			if (!pass2_xlat_compile(map->ci, &map->lhs, false, NULL)) {
+				return false;
+			}
+		} else {
+			if (!pass2_xlat_compile(map->ci, &map->lhs, true, NULL)) {
+				return false;
+			}
+
+			/*
+			 *	Attribute compared to a literal gets
+			 *	the literal cast to the data type of
+			 *	the attribute.
+			 *
+			 *	The code in parser.c did this for
+			 *
+			 *		&Attr == data
+			 *
+			 *	But now we've just converted "%{Attr}"
+			 *	to &Attr, so we've got to do it again.
+			 */
+			if ((map->lhs->type == TMPL_TYPE_ATTR) &&
+			    (map->rhs->type == TMPL_TYPE_LITERAL)) {
+				/*
+				 *	RHS is hex, try to parse it as
+				 *	type-specific data.
+				 */
+				if (map->lhs->auto_converted &&
+				    (map->rhs->name[0] == '0') && (map->rhs->name[1] == 'x') &&
+				    (map->rhs->len > 2) && ((map->rhs->len & 0x01) == 0)) {
+					vpt = map->rhs;
+					map->rhs = NULL;
+
+					if (!map_cast_from_hex(map, T_BARE_WORD, vpt->name)) {
+						map->rhs = vpt;
+						cf_log_err(map->ci, "%s", fr_strerror());
+						return -1;
+					}
+					talloc_free(vpt);
+
+				} else if ((map->rhs->len > 0) ||
+					   (map->op != T_OP_CMP_EQ) ||
+					   (map->lhs->tmpl_da->type == PW_TYPE_STRING) ||
+					   (map->lhs->tmpl_da->type == PW_TYPE_OCTETS)) {
+
+					if (tmpl_cast_in_place(map->rhs, map->lhs->tmpl_da->type, map->lhs->tmpl_da) < 0) {
+						cf_log_err(map->ci, "Failed to parse data type %s from string: %s",
+							   fr_int2str(dict_attr_types, map->lhs->tmpl_da->type, "<UNKNOWN>"),
+							   map->rhs->name);
+						return false;
+					} /* else the cast was successful */
+
+				} else {	/* RHS is empty, it's just a check for empty / non-empty string */
+					vpt = talloc_steal(c, map->lhs);
+					map->lhs = NULL;
+					talloc_free(c->data.map);
+
+					/*
+					 *	"%{Foo}" == '' ---> !Foo
+					 *	"%{Foo}" != '' ---> Foo
+					 */
+					c->type = COND_TYPE_EXISTS;
+					c->data.vpt = vpt;
+					c->negate = !c->negate;
+
+					WARN("%s[%d]: Please change (\"%%{%s}\" %s '') to %c&%s",
+					     cf_section_filename(cf_item_to_section(c->ci)),
+					     cf_section_lineno(cf_item_to_section(c->ci)),
+					     vpt->name, c->negate ? "==" : "!=",
+					     c->negate ? '!' : ' ', vpt->name);
+
+					/*
+					 *	No more RHS, so we can't do more optimizations
+					 */
+					return true;
+				}
+			}
 		}
 	}
 
@@ -3340,7 +3423,7 @@ check_paircmp:
 
 	/*
 	 *	Mark it as requiring a paircompare() call, instead of
-	 *	paircmp().
+	 *	fr_pair_cmp().
 	 */
 	c->pass2_fixup = PASS2_PAIRCOMPARE;
 
@@ -3541,9 +3624,9 @@ bool modcall_pass2(modcallable *mc)
 			if ((g->vpt->type == TMPL_TYPE_ATTR) &&
 			    (c->name[0] != '&')) {
 				WARN("%s[%d]: Please change %s to &%s",
-				       cf_section_filename(g->cs),
-				       cf_section_lineno(g->cs),
-				       c->name, c->name);
+				     cf_section_filename(g->cs),
+				     cf_section_lineno(g->cs),
+				     c->name, c->name);
 			}
 
 		do_children:

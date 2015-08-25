@@ -1,4 +1,49 @@
-FreeRADIUS 3.0.9 Wed 22 Apr 2015 13:30:00 EDT urgency=medium
+FreeRADIUS 3.0.10 Wed 08 Jul 2015 12:00:00 EDT urgency=medium
+	Feature improvements
+	* Do more optimization of unlang policies.  This makes
+	  run-time check a bit faster.
+	* Re-name most of the functions in src/lib.  Third-party
+	  module authors will have to do the same.
+	* More documentation on contributing and how to write
+	  modules.
+	* Write HTTP status code resulting from rlm_rest operations
+	  to reply:Rest-HTTP-Status-Code.
+	* Update radiusd.service for systemd.
+	* Open IPv6 proxy socket if the server is listening on IPV6
+	  auth / acct / coa packets.
+	* Create debian packages for DHCP.  Fixes #1125.
+	* Add more tests for "update" section parsing.
+	* Update "man" pages.
+	* Update attributes for Alcatel 7750
+
+	Bug fixes
+	* When using -C, don't error out if the configuration uses
+	  deprecated items.
+	* Fix rlm_files so that there are no collisions when loading
+	  10's of 1000's of users.
+	* Fix radclient to use our internal v4/v6 parsing functions.
+	  v6 addresses with ports now work correctly.
+	* Fix sending/receiving packet messages to wrap v6 addresses
+	  in square brackets '[]'.
+	* Check for sasl/sasl.h when building rlm_ldap, and disable
+	  SASL functionality if unavailable.
+	* Fix issue which caused a non \0 terminated buffer to be
+	  assigned to attributes if the value being assigned contained
+	  an invalid escape sequence.
+	* Fix deadlock when reconnecting connections in the connection
+	  pool.
+	* Fix potential overrun in functions that used fr_utf8_char
+	  with a none nul terminated buffer.
+	* Fix decoding issue for Tunnel-Password type attributes
+	  which were very long.
+	* Fix radclient issue with TCP sockets on FreeBSD.
+	* The server creates ${run_dir} and ${logdir} in daemon mode,
+	  when running as "root".
+	* Handle tags when using maps.  Fixes #1191.
+	* Fix crash when CoA packets time out.
+	* Fix parse error in rediswho
+
+FreeRADIUS 3.0.9 Wed 08 Jul 2015 12:00:00 EDT urgency=medium
 	Feature improvements
 	* Make "pool" configurations more consistent, and
 	  update documentation for them.
@@ -50,6 +95,10 @@ FreeRADIUS 3.0.9 Wed 22 Apr 2015 13:30:00 EDT urgency=medium
 	* More DHCP encoding / decoding unit tests.
 	* rlm_replicate can now be listed in the "accounting" section.
 	* Better sqlite debugging output.
+	* Remove "required" option from many sql_ippool directives.
+	* Set default CA "basic constraints" to "critical".  Fixes #1073
+	* Updates to help / man pages from Jorge Pereira.
+	* Added more tests.
 
 	Bug fixes
 	* Be more careful about unused config item warnings
@@ -97,6 +146,8 @@ FreeRADIUS 3.0.9 Wed 22 Apr 2015 13:30:00 EDT urgency=medium
 	* rlm_expr now errors out correctly on malformed attribute
 	  references instead of triggering an assert.
 	* Make "break" work in "foreach" loops
+	* Allow dynamic expansions to work again in the "hints" file.
+	* Correct minor typos in comments and examples from Alan Buxy.
 	* Re-urlencode the path portion of ldapi:// urls before
 	  passing it to ldap_initialise.
 

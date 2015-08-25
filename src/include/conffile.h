@@ -108,6 +108,8 @@ typedef struct timeval _timeval_t;
 #  define FR_ITEM_POINTER(_t, _p)	_t, _p
 #endif
 
+#define FR_CONF_DEPRECATED(_t, _p, _f) (_t) | PW_TYPE_DEPRECATED, 0, NULL
+
 /*
  *  Instead of putting the information into a configuration structure,
  *  the configuration file routines MAY just parse it directly into
@@ -120,7 +122,7 @@ typedef struct timeval _timeval_t;
  * These flags should be or'd with another PW_TYPE_* value to create validation
  * rules for the #cf_item_parse function.
  *
- * @note File PW_TYPE_FILE_* ypes have a base type of string, so they're validated
+ * @note File PW_TYPE_FILE_* types have a base type of string, so they're validated
  *	 correctly by the config parser.
  * @{
  */
@@ -160,6 +162,9 @@ do {\
 	}\
 } while (0)
 
+#define FR_TIMEVAL_TO_MS(_x) (((_x)->tv_usec * 1000) + ((_x)->tv_sec / 1000))
+extern bool 			check_config;
+
 /** Defines a #CONF_PAIR to C data type mapping
  *
  * Is typically used to define mappings between module sections, and module instance structs.
@@ -171,7 +176,7 @@ do {\
  @code{.c}
    static CONF_PARSER module_config[] = {
    	{ "example", FR_CONF_OFFSET(PW_TYPE_STRING | PW_TYPE_NOT_EMPTY, example_instance_t, example), "default_value" },
-   	{ NULL, -1, 0, NULL, NULL }
+   	CONF_PARSER_TERMINATOR
    }
  @endcode
  *
@@ -179,7 +184,7 @@ do {\
  @code{.c}
    static CONF_PARSER global_config[] = {
    	{ "example", FR_CONF_POINTER(PW_TYPE_STRING | PW_TYPE_NOT_EMPTY, &my_global), "default_value" },
-   	{ NULL, -1, 0, NULL, NULL }
+   	CONF_PARSER_TERMINATOR
    }
  @endcode
  *
@@ -207,6 +212,8 @@ typedef struct CONF_PARSER {
 						//!< to the start of another array of #CONF_PARSER structs, forming
 						//!< the subsection.
 } CONF_PARSER;
+
+#define CONF_PARSER_TERMINATOR	{ NULL, -1, 0, NULL, NULL }
 
 CONF_PAIR	*cf_pair_alloc(CONF_SECTION *parent, char const *attr, char const *value,
 			       FR_TOKEN op, FR_TOKEN lhs_type, FR_TOKEN rhs_type);

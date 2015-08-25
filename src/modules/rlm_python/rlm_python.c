@@ -102,8 +102,7 @@ static CONF_PARSER module_config[] = {
 #undef A
 
 	{ "python_path", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_python_t, python_path), NULL },
-
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	CONF_PARSER_TERMINATOR
 };
 
 static struct {
@@ -343,7 +342,7 @@ static void mod_vptuple(TALLOC_CTX *ctx, VALUE_PAIR **vps, PyObject *pValue,
 		}
 		s1 = PyString_AsString(pStr1);
 		s2 = PyString_AsString(pStr2);
-		vp = pairmake(ctx, vps, s1, s2, op);
+		vp = fr_pair_make(ctx, vps, s1, s2, op);
 		if (vp != NULL) {
 			DEBUG("rlm_python:%s: '%s' = '%s'", funcname, s1, s2);
 		} else {

@@ -958,7 +958,7 @@ ssize_t tmpl_afrom_str(TALLOC_CTX *ctx, vp_tmpl_t **out, char const *in, size_t 
 	parse:
 		if (cf_new_escape && do_unescape) {
 			slen = value_data_from_str(ctx, &data, &data_type, NULL, in, inlen, quote);
-			rad_assert(slen >= 0);
+			if (slen < 0) return 0;
 
 			vpt = tmpl_alloc(ctx, TMPL_TYPE_LITERAL, data.strvalue, talloc_array_length(data.strvalue) - 1);
 			talloc_free(data.ptr);
@@ -1190,7 +1190,7 @@ int tmpl_cast_to_vp(VALUE_PAIR **out, REQUEST *request,
 
 	*out = NULL;
 
-	vp = pairalloc(request, cast);
+	vp = fr_pair_afrom_da(request, cast);
 	if (!vp) return -1;
 
 	if (vpt->type == TMPL_TYPE_DATA) {
@@ -1204,7 +1204,7 @@ int tmpl_cast_to_vp(VALUE_PAIR **out, REQUEST *request,
 
 	rcode = tmpl_aexpand(vp, &p, request, vpt, NULL, NULL);
 	if (rcode < 0) {
-		pairfree(&vp);
+		fr_pair_list_free(&vp);
 		return rcode;
 	}
 	data.strvalue = p;
@@ -1216,9 +1216,9 @@ int tmpl_cast_to_vp(VALUE_PAIR **out, REQUEST *request,
 		vp->data.ptr = talloc_steal(vp, data.ptr);
 		vp->vp_length = rcode;
 
-	} else if (pairparsevalue(vp, data.strvalue, rcode) < 0) {
+	} else if (fr_pair_value_from_str(vp, data.strvalue, rcode) < 0) {
 		talloc_free(data.ptr);
-		pairfree(&vp);
+		fr_pair_list_free(&vp);
 		return -1;
 	}
 
@@ -2038,9 +2038,9 @@ int tmpl_copy_vps(TALLOC_CTX *ctx, VALUE_PAIR **out, REQUEST *request, vp_tmpl_t
 	for (vp = tmpl_cursor_init(&err, &from, request, vpt);
 	     vp;
 	     vp = tmpl_cursor_next(&from, vpt)) {
-		vp = paircopyvp(ctx, vp);
+		vp = fr_pair_copy(ctx, vp);
 		if (!vp) {
-			pairfree(out);
+			fr_pair_list_free(out);
 			return -4;
 		}
 		fr_cursor_insert(&to, vp);

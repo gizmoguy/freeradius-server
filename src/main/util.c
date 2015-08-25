@@ -391,7 +391,7 @@ size_t rad_filename_escape(UNUSED REQUEST *request, char *out, size_t outlen, ch
 		/*
 		 *	Encode multibyte UTF8 chars
 		 */
-		utf8_len = fr_utf8_char((uint8_t const *) in);
+		utf8_len = fr_utf8_char((uint8_t const *) in, -1);
 		if (utf8_len > 1) {
 			if (freespace <= (utf8_len * 3)) break;
 
@@ -1084,7 +1084,7 @@ static void verify_packet(char const *file, int line, REQUEST *request, RADIUS_P
 	if (!packet->vps) return;
 
 #ifdef WITH_VERIFY_PTR
-	fr_pair_verify_list(file, line, packet, packet->vps);
+	fr_pair_list_verify(file, line, packet, packet->vps);
 #endif
 }
 /*
@@ -1101,8 +1101,8 @@ void verify_request(char const *file, int line, REQUEST *request)
 	(void) talloc_get_type_abort(request, REQUEST);
 
 #ifdef WITH_VERIFY_PTR
-	fr_pair_verify_list(file, line, request, request->config);
-	fr_pair_verify_list(file, line, request, request->state);
+	fr_pair_list_verify(file, line, request, request->config);
+	fr_pair_list_verify(file, line, request, request->state);
 #endif
 
 	if (request->packet) verify_packet(file, line, request, request->packet, "request");

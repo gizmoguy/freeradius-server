@@ -50,8 +50,7 @@ static const CONF_PARSER module_config[] = {
 	{ "boolean", FR_CONF_OFFSET(PW_TYPE_BOOLEAN, rlm_example_t, boolean), "no" },
 	{ "string", FR_CONF_OFFSET(PW_TYPE_STRING, rlm_example_t, string), NULL },
 	{ "ipaddr", FR_CONF_OFFSET(PW_TYPE_IPV4_ADDR, rlm_example_t, ipaddr), "*" },
-
-	{ NULL, -1, 0, NULL, NULL }		/* end the list */
+	CONF_PARSER_TERMINATOR
 };
 
 static int rlm_example_cmp(UNUSED void *instance, REQUEST *request, UNUSED VALUE_PAIR *thing, VALUE_PAIR *check,
@@ -114,7 +113,7 @@ static rlm_rcode_t CC_HINT(nonnull) mod_authorize(UNUSED void *instance, REQUEST
 	/*
 	 *  Look for the 'state' attribute.
 	 */
-	state = pairfind(request->packet->vps, PW_STATE, 0, TAG_ANY);
+	state = fr_pair_find_by_num(request->packet->vps, PW_STATE, 0, TAG_ANY);
 	if (state != NULL) {
 		RDEBUG("Found reply to access challenge");
 		return RLM_MODULE_OK;
@@ -123,8 +122,8 @@ static rlm_rcode_t CC_HINT(nonnull) mod_authorize(UNUSED void *instance, REQUEST
 	/*
 	 *  Create the challenge, and add it to the reply.
 	 */
-	pairmake_reply("Reply-Message", "This is a challenge", T_OP_EQ);
-	pairmake_reply("State", "0", T_OP_EQ);
+	pair_make_reply("Reply-Message", "This is a challenge", T_OP_EQ);
+	pair_make_reply("State", "0", T_OP_EQ);
 
 	/*
 	 *  Mark the packet as an Access-Challenge packet.

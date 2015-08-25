@@ -108,7 +108,7 @@ bool map_cast_from_hex(vp_map_t *map, FR_TOKEN rhs_type, char const *rhs)
 
 	if ((size_t) rlen < len) {
 	free_vp:
-		pairfree(&vp);
+		fr_pair_list_free(&vp);
 		return false;
 	}
 
@@ -166,7 +166,7 @@ bool map_cast_from_hex(vp_map_t *map, FR_TOKEN rhs_type, char const *rhs)
 	talloc_free(map->lhs);
 	map->lhs = vpt;
 
-	pairfree(&vp);
+	fr_pair_list_free(&vp);
 
 	VERIFY_MAP(map);
 
@@ -282,6 +282,16 @@ int map_afrom_cp(TALLOC_CTX *ctx, vp_map_t **out, CONF_PAIR *cp,
 	}
 	if (!map->rhs) {
 		cf_log_err_cp(cp, "%s", fr_strerror());
+		goto error;
+	}
+
+	/*
+	 *	We cannot assign a count to an attribute.  That must
+	 *	be done in an xlat.
+	 */
+	if ((map->rhs->type == TMPL_TYPE_ATTR) &&
+	    (map->rhs->tmpl_num == NUM_COUNT)) {
+		cf_log_err_cp(cp, "Cannot assign from a count");
 		goto error;
 	}
 
@@ -638,13 +648,14 @@ void map_sort(vp_map_t **maps, fr_cmp_t cmp)
 
 /** Process map which has exec as a src
  *
- * Evaluate maps which specify exec as a src. This may be used by various sorts of update sections, and so
- * has been broken out into it's own function.
+ * Evaluate maps which specify exec as a src. This may be used by various sorts of update sections,
+ * and so has been broken out into it's own function.
  *
  * @param[in,out] ctx to allocate new #VALUE_PAIR (s) in.
  * @param[out] out Where to write the #VALUE_PAIR (s).
  * @param[in] request structure (used only for talloc).
- * @param[in] map the map. The LHS (dst) must be TMPL_TYPE_ATTR or TMPL_TYPE_LIST. The RHS (src) must be TMPL_TYPE_EXEC.
+ * @param[in] map the map. The LHS (dst) must be TMPL_TYPE_ATTR or TMPL_TYPE_LIST. The RHS (src)
+ *	must be TMPL_TYPE_EXEC.
  * @return -1 on failure, 0 on success.
  */
 static int map_exec_to_vp(TALLOC_CTX *ctx, VALUE_PAIR **out, REQUEST *request, vp_map_t const *map)
@@ -671,7 +682,7 @@ static int map_exec_to_vp(TALLOC_CTX *ctx, VALUE_PAIR **out, REQUEST *request, v
 	 *	Automagically switch output type depending on our destination
 	 *	If dst is a list, then we create attributes from the output of the program
 	 *	if dst is an attribute, then we create an attribute of that type and then
-	 *	call pairparsevalue on the output of the script.
+	 *	call fr_pair_value_from_str on the output of the script.
 	 */
 	result = radius_exec_program(ctx, answer, sizeof(answer),
 				     (map->lhs->type == TMPL_TYPE_LIST) ? &output_pairs : NULL,
@@ -696,11 +707,12 @@ static int map_exec_to_vp(TALLOC_CTX *ctx, VALUE_PAIR **out, REQUEST *request, v
 	{
 		VALUE_PAIR *vp;
 
-		vp = pairalloc(ctx, map->lhs->tmpl_da);
+		vp = fr_pair_afrom_da(ctx, map->lhs->tmpl_da);
 		if (!vp) return -1;
 		vp->op = map->op;
-		if (pairparsevalue(vp, answer, -1) < 0) {
-			pairfree(&vp);
+		vp->tag = map->lhs->tmpl_tag;
+		if (fr_pair_value_from_str(vp, answer, -1) < 0) {
+			fr_pair_list_free(&vp);
 			return -2;
 		}
 		*out = vp;
@@ -762,7 +774,7 @@ int map_to_vp(TALLOC_CTX *ctx, VALUE_PAIR **out, REQUEST *request, vp_map_t cons
 		}
 		if (!from) return 0;
 
-		found = paircopy(ctx, *from);
+		found = fr_pair_list_copy(ctx, *from);
 
 		/*
 		 *	List to list copy is empty if the src list has no attributes.
@@ -789,7 +801,7 @@ int map_to_vp(TALLOC_CTX *ctx, VALUE_PAIR **out, REQUEST *request, vp_map_t cons
 		rad_assert(map->lhs->tmpl_da);	/* We need to know which attribute to create */
 		rad_assert(map->rhs->tmpl_xlat != NULL);
 
-		new = pairalloc(ctx, map->lhs->tmpl_da);
+		new = fr_pair_afrom_da(ctx, map->lhs->tmpl_da);
 		if (!new) return -1;
 
 		str = NULL;
@@ -807,13 +819,14 @@ int map_to_vp(TALLOC_CTX *ctx, VALUE_PAIR **out, REQUEST *request, vp_map_t cons
 		RDEBUG2("EXPAND %s", map->rhs->name);
 		RDEBUG2("   --> %s", str);
 
-		rcode = pairparsevalue(new, str, -1);
+		rcode = fr_pair_value_from_str(new, str, -1);
 		talloc_free(str);
 		if (rcode < 0) {
-			pairfree(&new);
+			fr_pair_list_free(&new);
 			goto error;
 		}
 		new->op = map->op;
+		new->tag = map->lhs->tmpl_tag;
 		*out = new;
 		break;
 
@@ -821,7 +834,7 @@ int map_to_vp(TALLOC_CTX *ctx, VALUE_PAIR **out, REQUEST *request, vp_map_t cons
 		rad_assert(map->lhs->type == TMPL_TYPE_ATTR);
 		rad_assert(map->lhs->tmpl_da);	/* We need to know which attribute to create */
 
-		new = pairalloc(ctx, map->lhs->tmpl_da);
+		new = fr_pair_afrom_da(ctx, map->lhs->tmpl_da);
 		if (!new) return -1;
 
 		str = NULL;
@@ -831,13 +844,14 @@ int map_to_vp(TALLOC_CTX *ctx, VALUE_PAIR **out, REQUEST *request, vp_map_t cons
 			goto error;
 		}
 
-		rcode = pairparsevalue(new, str, -1);
+		rcode = fr_pair_value_from_str(new, str, -1);
 		talloc_free(str);
 		if (rcode < 0) {
-			pairfree(&new);
+			fr_pair_list_free(&new);
 			goto error;
 		}
 		new->op = map->op;
+		new->tag = map->lhs->tmpl_tag;
 		*out = new;
 		break;
 
@@ -845,14 +859,15 @@ int map_to_vp(TALLOC_CTX *ctx, VALUE_PAIR **out, REQUEST *request, vp_map_t cons
 		rad_assert(map->lhs->type == TMPL_TYPE_ATTR);
 		rad_assert(map->lhs->tmpl_da);	/* We need to know which attribute to create */
 
-		new = pairalloc(ctx, map->lhs->tmpl_da);
+		new = fr_pair_afrom_da(ctx, map->lhs->tmpl_da);
 		if (!new) return -1;
 
-		if (pairparsevalue(new, map->rhs->name, -1) < 0) {
+		if (fr_pair_value_from_str(new, map->rhs->name, -1) < 0) {
 			rcode = 0;
 			goto error;
 		}
 		new->op = map->op;
+		new->tag = map->lhs->tmpl_tag;
 		*out = new;
 		break;
 
@@ -880,15 +895,15 @@ int map_to_vp(TALLOC_CTX *ctx, VALUE_PAIR **out, REQUEST *request, vp_map_t cons
 
 			(void) fr_cursor_init(&to, out);
 			for (; vp; vp = fr_cursor_next(&from)) {
-				new = pairalloc(ctx, map->lhs->tmpl_da);
+				new = fr_pair_afrom_da(ctx, map->lhs->tmpl_da);
 				if (!new) return -1;
 
 				len = value_data_cast(new, &new->data, new->da->type, new->da,
 						      vp->da->type, vp->da, &vp->data, vp->vp_length);
 				if (len < 0) {
 					REDEBUG("Attribute conversion failed: %s", fr_strerror());
-					pairfree(&found);
-					pairfree(&new);
+					fr_pair_list_free(&found);
+					fr_pair_list_free(&new);
 					return -1;
 				}
 
@@ -901,6 +916,7 @@ int map_to_vp(TALLOC_CTX *ctx, VALUE_PAIR **out, REQUEST *request, vp_map_t cons
 				}
 
 				new->op = map->op;
+				new->tag = map->lhs->tmpl_tag;
 				fr_cursor_insert(&to, new);
 			}
 			return 0;
@@ -913,6 +929,7 @@ int map_to_vp(TALLOC_CTX *ctx, VALUE_PAIR **out, REQUEST *request, vp_map_t cons
 		for (; vp; vp = fr_cursor_next(&from)) {
 			vp->da = map->lhs->tmpl_da;
 			vp->op = map->op;
+			vp->tag = map->lhs->tmpl_tag;
 		}
 		*out = found;
 	}
@@ -923,7 +940,7 @@ int map_to_vp(TALLOC_CTX *ctx, VALUE_PAIR **out, REQUEST *request, vp_map_t cons
 		rad_assert(map->lhs->type == TMPL_TYPE_ATTR);
 		rad_assert(map->lhs->tmpl_da->type == map->rhs->tmpl_data_type);
 
-		new = pairalloc(ctx, map->lhs->tmpl_da);
+		new = fr_pair_afrom_da(ctx, map->lhs->tmpl_da);
 		if (!new) return -1;
 
 		len = value_data_copy(new, &new->data, new->da->type, &map->rhs->tmpl_data_value,
@@ -932,6 +949,7 @@ int map_to_vp(TALLOC_CTX *ctx, VALUE_PAIR **out, REQUEST *request, vp_map_t cons
 
 		new->vp_length = len;
 		new->op = map->op;
+		new->tag = map->lhs->tmpl_tag;
 		*out = new;
 
 		VERIFY_MAP(map);
@@ -951,7 +969,7 @@ int map_to_vp(TALLOC_CTX *ctx, VALUE_PAIR **out, REQUEST *request, vp_map_t cons
 		rad_assert(0);	/* Should have been caught at parse time */
 
 	error:
-		pairfree(&vp);
+		fr_pair_list_free(&vp);
 		return rcode;
 	}
 
@@ -1075,7 +1093,10 @@ int map_to_request(REQUEST *request, vp_map_t const *map, radius_map_getvalue_t 
 	 */
 	if (((map->lhs->tmpl_list == PAIR_LIST_COA) ||
 	     (map->lhs->tmpl_list == PAIR_LIST_DM)) && !request->coa) {
-		request_alloc_coa(context);
+		if (!request_alloc_coa(context)) {
+			REDEBUG("Failed to create a CoA/Disconnect Request message");
+			return -2;
+		}
 		context->coa->proxy->code = (map->lhs->tmpl_list == PAIR_LIST_COA) ?
 					    PW_CODE_COA_REQUEST :
 					    PW_CODE_DISCONNECT_REQUEST;
@@ -1133,7 +1154,7 @@ int map_to_request(REQUEST *request, vp_map_t const *map, radius_map_getvalue_t 
 			rad_assert(!head);
 
 			/* Clear the entire dst list */
-			pairfree(list);
+			fr_pair_list_free(list);
 
 			if (map->lhs->tmpl_list == PAIR_LIST_REQUEST) {
 				context->username = NULL;
@@ -1143,20 +1164,20 @@ int map_to_request(REQUEST *request, vp_map_t const *map, radius_map_getvalue_t 
 
 		case T_OP_SET:
 			if (map->rhs->type == TMPL_TYPE_LIST) {
-				pairfree(list);
+				fr_pair_list_free(list);
 				*list = head;
 				head = NULL;
 			} else {
 		case T_OP_EQ:
 				rad_assert(map->rhs->type == TMPL_TYPE_EXEC);
 		case T_OP_ADD:
-				pairmove(parent, list, &head);
-				pairfree(&head);
+				fr_pair_list_move(parent, list, &head);
+				fr_pair_list_free(&head);
 			}
 			goto finish;
 
 		default:
-			pairfree(&head);
+			fr_pair_list_free(&head);
 			return -1;
 		}
 	}
@@ -1196,14 +1217,14 @@ int map_to_request(REQUEST *request, vp_map_t const *map, radius_map_getvalue_t 
 		 *	Wildcard: delete all of the matching ones, based on tag.
 		 */
 		if (map->lhs->tmpl_num == NUM_ANY) {
-			pairdelete(list, map->lhs->tmpl_da->attr, map->lhs->tmpl_da->vendor, map->lhs->tmpl_tag);
+			fr_pair_delete_by_num(list, map->lhs->tmpl_da->attr, map->lhs->tmpl_da->vendor, map->lhs->tmpl_tag);
 			dst = NULL;
 		/*
 		 *	We've found the Nth one.  Delete it, and only it.
 		 */
 		} else {
 			dst = fr_cursor_remove(&dst_list);
-			pairfree(&dst);
+			fr_pair_list_free(&dst);
 		}
 
 		/*
@@ -1225,7 +1246,7 @@ int map_to_request(REQUEST *request, vp_map_t const *map, radius_map_getvalue_t 
 	case T_OP_SUB:
 		/* We didn't find any attributes earlier */
 		if (!dst) {
-			pairfree(&head);
+			fr_pair_list_free(&head);
 			return 0;
 		}
 
@@ -1240,11 +1261,11 @@ int map_to_request(REQUEST *request, vp_map_t const *map, radius_map_getvalue_t 
 				rcode = radius_compare_vps(request, vp, dst);
 				if (rcode == 0) {
 					dst = fr_cursor_remove(&dst_list);
-					pairfree(&dst);
+					fr_pair_list_free(&dst);
 					found = true;
 				}
 			}
-			pairfree(&head);
+			fr_pair_list_free(&head);
 			if (!found) return 0;
 			goto finish;
 		}
@@ -1262,12 +1283,12 @@ int map_to_request(REQUEST *request, vp_map_t const *map, radius_map_getvalue_t 
 				rcode = radius_compare_vps(request, vp, dst);
 				if (rcode == 0) {
 					dst = fr_cursor_remove(&dst_list);
-					pairfree(&dst);
+					fr_pair_list_free(&dst);
 					found = true;
 				}
 			}
 		}
-		pairfree(&head);
+		fr_pair_list_free(&head);
 		if (!found) return 0;
 		goto finish;
 	}
@@ -1290,7 +1311,7 @@ int map_to_request(REQUEST *request, vp_map_t const *map, radius_map_getvalue_t 
 	case T_OP_EQ:
 		if (dst) {
 			RDEBUG3("Refusing to overwrite (use :=)");
-			pairfree(&head);
+			fr_pair_list_free(&head);
 			return 0;
 		}
 
@@ -1298,7 +1319,7 @@ int map_to_request(REQUEST *request, vp_map_t const *map, radius_map_getvalue_t 
 		fr_cursor_first(&src_list);
 		fr_cursor_insert(&dst_list, fr_cursor_remove(&src_list));
 		/* Free any we didn't insert */
-		pairfree(&head);
+		fr_pair_list_free(&head);
 		break;
 
 	/*
@@ -1310,12 +1331,12 @@ int map_to_request(REQUEST *request, vp_map_t const *map, radius_map_getvalue_t 
 		if (dst) {
 			DEBUG_OVERWRITE(dst, fr_cursor_current(&src_list));
 			dst = fr_cursor_replace(&dst_list, fr_cursor_remove(&src_list));
-			pairfree(&dst);
+			fr_pair_list_free(&dst);
 		} else {
 			fr_cursor_insert(&dst_list, fr_cursor_remove(&src_list));
 		}
 		/* Free any we didn't insert */
-		pairfree(&head);
+		fr_pair_list_free(&head);
 		break;
 
 	/*
@@ -1323,7 +1344,7 @@ int map_to_request(REQUEST *request, vp_map_t const *map, radius_map_getvalue_t 
 	 */
 	case T_OP_ADD:
 		/* Insert all the instances! (if multiple) */
-		pairadd(list, head);
+		fr_pair_add(list, head);
 		head = NULL;
 		break;
 
@@ -1360,7 +1381,7 @@ int map_to_request(REQUEST *request, vp_map_t const *map, radius_map_getvalue_t 
 			replace:
 				dst = fr_cursor_remove(&dst_list);
 				DEBUG_OVERWRITE(dst, fr_cursor_current(&src_list));
-				pairfree(&dst);
+				fr_pair_list_free(&dst);
 				fr_cursor_insert(&dst_list, fr_cursor_remove(&src_list));
 				found = true;
 				continue;
@@ -1374,11 +1395,11 @@ int map_to_request(REQUEST *request, vp_map_t const *map, radius_map_getvalue_t 
 				goto replace;
 
 			default:
-				pairfree(&head);
+				fr_pair_list_free(&head);
 				return -1;
 			}
 		}
-		pairfree(&head);
+		fr_pair_list_free(&head);
 		if (!found) return 0;
 
 		break;

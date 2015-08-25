@@ -442,19 +442,18 @@ ssize_t value_data_from_str(TALLOC_CTX *ctx, value_data_t *dst,
 	switch (*src_type) {
 	case PW_TYPE_STRING:
 	{
-		char		*p;
+		char		*p, *buff;
 		char const	*q;
 		int		x;
 
-		dst->strvalue = p = talloc_array(ctx, char, len + 1);
-		memcpy(p, src, len);
-		p[len] = '\0';
+		buff = p = talloc_bstrndup(ctx, src, len);
 
 		/*
 		 *	No de-quoting.  Just copy the string.
 		 */
 		if (!quote) {
 			ret = len;
+			dst->strvalue = buff;
 			goto finish;
 		}
 
@@ -466,7 +465,7 @@ ssize_t value_data_from_str(TALLOC_CTX *ctx, value_data_t *dst,
 		if (quote == '\'') {
 			q = p;
 
-			while (q < (dst->strvalue + len)) {
+			while (q < (buff + len)) {
 				/*
 				 *	The quotation character is escaped.
 				 */
@@ -494,8 +493,10 @@ ssize_t value_data_from_str(TALLOC_CTX *ctx, value_data_t *dst,
 			}
 
 			*p = '\0';
-			ret = p - dst->strvalue;
-			dst->ptr = talloc_realloc(ctx, dst->ptr, char, ret + 1);
+			ret = p - buff;
+
+			/* Shrink the buffer to the correct size */
+			dst->strvalue = talloc_realloc(ctx, buff, char, ret + 1);
 			goto finish;
 		}
 
@@ -504,11 +505,12 @@ ssize_t value_data_from_str(TALLOC_CTX *ctx, value_data_t *dst,
 		 *	escaping.
 		 */
 		q = p;
-		while (q < (dst->strvalue + len)) {
+		while (q < (buff + len)) {
 			char c = *q++;
 
-			if ((c == '\\') && (q >= (dst->strvalue + len))) {
+			if ((c == '\\') && (q >= (buff + len))) {
 				fr_strerror_printf("Invalid escape at end of string");
+				talloc_free(buff);
 				return -1;
 			}
 
@@ -574,8 +576,8 @@ ssize_t value_data_from_str(TALLOC_CTX *ctx, value_data_t *dst,
 		}
 
 		*p = '\0';
-		ret = p - dst->strvalue;
-		dst->ptr = talloc_realloc(ctx, dst->ptr, char, ret + 1);
+		ret = p - buff;
+		dst->strvalue = talloc_realloc(ctx, buff, char, ret + 1);
 	}
 		goto finish;
 
@@ -605,7 +607,7 @@ ssize_t value_data_from_str(TALLOC_CTX *ctx, value_data_t *dst,
 		 *	Invalid.
 		 */
 		if ((len & 0x01) != 0) {
-			fr_strerror_printf("Length of Hex String is not even, got %zu bytes", ret);
+			fr_strerror_printf("Length of Hex String is not even, got %zu bytes", len);
 			return -1;
 		}
 
@@ -1131,6 +1133,45 @@ ssize_t value_data_cast(TALLOC_CTX *ctx, value_data_t *dst,
 	}
 
 	/*
+	 *	We can cast integers less that < INT_MAX to signed
+	 */
+	if (dst_type == PW_TYPE_SIGNED) {
+		switch (src_type) {
+		case PW_TYPE_BYTE:
+			dst->sinteger = src->byte;
+			break;
+
+		case PW_TYPE_SHORT:
+			dst->sinteger = src->ushort;
+			break;
+
+		case PW_TYPE_INTEGER:
+			if (src->integer > INT_MAX) {
+				fr_strerror_printf("Invalid cast: From integer to signed.  integer value %u is larger "
+						   "than max signed int and would overflow", src->integer);
+				return -1;
+			}
+			dst->sinteger = (int)src->integer;
+			break;
+
+		case PW_TYPE_INTEGER64:
+			if (src->integer > INT_MAX) {
+				fr_strerror_printf("Invalid cast: From integer64 to signed.  integer64 value %" PRIu64
+						   " is larger than max signed int and would overflow", src->integer64);
+				return -1;
+			}
+			dst->sinteger = (int)src->integer64;
+			break;
+
+		case PW_TYPE_OCTETS:
+			goto do_octets;
+
+		default:
+			goto invalid_cast;
+		}
+		goto fixed_length;
+	}
+	/*
 	 *	Conversions between IPv4 addresses, IPv6 addresses, IPv4 prefixes and IPv6 prefixes
 	 *
 	 *	For prefix to ipaddress conversions, we assume that the host portion has already
@@ -1574,6 +1615,7 @@ size_t value_data_prints(char *out, size_t outlen,
 	DICT_VALUE	*v;
 	char		buf[1024];	/* Interim buffer to use with poorly behaved printing functions */
 	char const	*a = NULL;
+	char		*p = out;
 	time_t		t;
 	struct tm	s_tm;
 	unsigned int	i;
@@ -1585,6 +1627,8 @@ size_t value_data_prints(char *out, size_t outlen,
 
 	*out = '\0';
 
+	p = out;
+
 	switch (type) {
 	case PW_TYPE_STRING:
 
@@ -1594,22 +1638,23 @@ size_t value_data_prints(char *out, size_t outlen,
 		if (quote) {
 			if (freespace < 3) return inlen + 2;
 
-			*out++ = quote;
+			*p++ = quote;
 			freespace--;
 
-			len = fr_prints(out, freespace, data->strvalue, inlen, quote);
+			len = fr_prints(p, freespace, data->strvalue, inlen, quote);
 			/* always terminate the quoted string with another quote */
 			if (len >= (freespace - 1)) {
+				/* Use out not p as we're operating on the entire buffer */
 				out[outlen - 2] = (char) quote;
 				out[outlen - 1] = '\0';
 				return len + 2;
 			}
-			out += len;
+			p += len;
 			freespace -= len;
 
-			*out++ = (char) quote;
+			*p++ = (char) quote;
 			freespace--;
-			*out = '\0';
+			*p = '\0';
 
 			return len + 2;
 		}
@@ -1727,7 +1772,7 @@ print_int:
 
 		a = inet_ntop(AF_INET6, &addr, buf, sizeof(buf));
 		if (a) {
-			char *p = buf;
+			p = buf;
 
 			len = strlen(buf);
 			p += len;
@@ -1747,7 +1792,7 @@ print_int:
 
 		a = inet_ntop(AF_INET, &addr, buf, sizeof(buf));
 		if (a) {
-			char *p = buf;
+			p = buf;
 
 			len = strlen(buf);
 			p += len;

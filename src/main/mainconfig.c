@@ -105,7 +105,7 @@ static const CONF_PARSER startup_log_config[] = {
 	{ "logdir", FR_CONF_POINTER(PW_TYPE_STRING, &radlog_dir), "${localstatedir}/log"},
 	{ "file",  FR_CONF_POINTER(PW_TYPE_STRING, &main_config.log_file), "${logdir}/radius.log" },
 	{ "requests",  FR_CONF_POINTER(PW_TYPE_STRING | PW_TYPE_DEPRECATED, &default_log.file), NULL },
-	{ NULL, -1, 0, NULL, NULL }
+	CONF_PARSER_TERMINATOR
 };
 
 
@@ -121,7 +121,7 @@ static const CONF_PARSER startup_server_config[] = {
 	{ "log_file",  FR_CONF_POINTER(PW_TYPE_STRING, &main_config.log_file), NULL },
 	{ "log_destination", FR_CONF_POINTER(PW_TYPE_STRING, &radlog_dest), NULL },
 	{ "use_utc", FR_CONF_POINTER(PW_TYPE_BOOLEAN, &log_dates_utc), NULL },
-	{ NULL, -1, 0, NULL, NULL }
+	CONF_PARSER_TERMINATOR
 };
 
 
@@ -140,10 +140,8 @@ static const CONF_PARSER log_config[] = {
 	{ "msg_goodpass", FR_CONF_POINTER(PW_TYPE_STRING, &main_config.auth_goodpass_msg), NULL},
 	{ "colourise",FR_CONF_POINTER(PW_TYPE_BOOLEAN, &do_colourise), NULL },
 	{ "use_utc", FR_CONF_POINTER(PW_TYPE_BOOLEAN, &log_dates_utc), NULL },
-	{ "msg_denied", FR_CONF_POINTER(PW_TYPE_STRING, &main_config.denied_msg),
-	  "You are already logged in - access denied" },
-
-	{ NULL, -1, 0, NULL, NULL }
+	{ "msg_denied", FR_CONF_POINTER(PW_TYPE_STRING, &main_config.denied_msg), "You are already logged in - access denied" },
+	CONF_PARSER_TERMINATOR
 };
 
 
@@ -157,7 +155,7 @@ static const CONF_PARSER security_config[] = {
 #ifdef ENABLE_OPENSSL_VERSION_CHECK
 	{ "allow_vulnerable_openssl", FR_CONF_POINTER(PW_TYPE_STRING, &main_config.allow_vulnerable_openssl), "no"},
 #endif
-	{ NULL, -1, 0, NULL, NULL }
+	CONF_PARSER_TERMINATOR
 };
 
 static const CONF_PARSER resources[] = {
@@ -167,8 +165,7 @@ static const CONF_PARSER resources[] = {
 	 *	it exists.
 	 */
 	{ "talloc_pool_size", FR_CONF_POINTER(PW_TYPE_INTEGER, &main_config.talloc_pool_size), NULL },
-
-	{ NULL, -1, 0, NULL, NULL }
+	CONF_PARSER_TERMINATOR
 };
 
 static const CONF_PARSER server_config[] = {
@@ -218,8 +215,7 @@ static const CONF_PARSER server_config[] = {
 	{ "log_stripped_names", FR_CONF_POINTER(PW_TYPE_BOOLEAN | PW_TYPE_DEPRECATED, &log_stripped_names), NULL },
 
 	{  "security", FR_CONF_POINTER(PW_TYPE_SUBSECTION, NULL), (void const *) security_config },
-
-	{ NULL, -1, 0, NULL, NULL }
+	CONF_PARSER_TERMINATOR
 };
 
 
@@ -243,8 +239,7 @@ static const CONF_PARSER bootstrap_security_config[] = {
 #endif
 	{ "chroot",  FR_CONF_POINTER(PW_TYPE_STRING, &chroot_dir), NULL },
 	{ "allow_core_dumps", FR_CONF_POINTER(PW_TYPE_BOOLEAN, &allow_core_dumps), "no" },
-
-	{ NULL, -1, 0, NULL, NULL }
+	CONF_PARSER_TERMINATOR
 };
 
 static const CONF_PARSER bootstrap_config[] = {
@@ -266,8 +261,7 @@ static const CONF_PARSER bootstrap_config[] = {
 #endif
 	{ "chroot",  FR_CONF_POINTER(PW_TYPE_STRING | PW_TYPE_DEPRECATED, &chroot_dir), NULL },
 	{ "allow_core_dumps", FR_CONF_POINTER(PW_TYPE_BOOLEAN | PW_TYPE_DEPRECATED, &allow_core_dumps), NULL },
-
-	{ NULL, -1, 0, NULL, NULL }
+	CONF_PARSER_TERMINATOR
 };
 
 
@@ -423,7 +417,7 @@ static ssize_t xlat_getclient(UNUSED void *instance, REQUEST *request, char cons
 	}
 
 	strlcpy(buffer, p, (q + 1) - p);
-	if (fr_pton(&ip, buffer, -1, false) < 0) {
+	if (fr_pton(&ip, buffer, -1, AF_UNSPEC, false) < 0) {
 		REDEBUG("\"%s\" is not a valid IPv4 or IPv6 address", buffer);
 		goto error;
 	}
@@ -584,16 +578,15 @@ static int switch_users(CONF_SECTION *cs)
 #endif
 
 	/*
-	 *	If we did change from root to a normal user, do some
-	 *	more work.
+	 *	The directories for PID files and logs must exist.  We
+	 *	need to create them if we're told to write files to
+	 *	those directories.
 	 *
-	 *	Try to create the various output directories.  Because
-	 *	this creation is new in 3.0.9, it's a soft fail.
+	 *	Because this creation is new in 3.0.9, it's a soft
+	 *	fail.
 	 *
-	 *	And once we're done with all of the above work,
-	 *	permanently change the UID.
 	 */
-	if (do_suid) {
+	if (main_config.write_pid) {
 		char *my_dir;
 
 		my_dir = talloc_strdup(NULL, run_dir);
@@ -602,16 +595,24 @@ static int switch_users(CONF_SECTION *cs)
 			      my_dir, strerror(errno));
 		}
 		talloc_free(my_dir);
+	}
 
-		if (default_log.dst == L_DST_FILES) {
-			my_dir = talloc_strdup(NULL, radlog_dir);
-			if (rad_mkdir(my_dir, 0750, server_uid, server_gid) < 0) {
-				DEBUG("Failed to create logdir %s: %s",
-				      my_dir, strerror(errno));
-			}
-			talloc_free(my_dir);
+	if (default_log.dst == L_DST_FILES) {
+		char *my_dir;
+
+		my_dir = talloc_strdup(NULL, radlog_dir);
+		if (rad_mkdir(my_dir, 0750, server_uid, server_gid) < 0) {
+			DEBUG("Failed to create logdir %s: %s",
+			      my_dir, strerror(errno));
 		}
+		talloc_free(my_dir);
+	}
 
+	/*
+	 *	Once we're done with all of the privileged work,
+	 *	permanently change the UID.
+	 */
+	if (do_suid) {
 		rad_suid_set_down_uid(server_uid);
 		rad_suid_down();
 	}
